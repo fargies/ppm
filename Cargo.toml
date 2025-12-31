@@ -1,0 +1,30 @@
+[package]
+name = "ppm"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ppm-daemon"
+path = "src/daemon.rs"
+
+[[bin]]
+name = "ppm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["derive"] }
+dashmap = { version = "6.1.0", features = ["serde"] }
+humantime-serde = "1.1.1"
+libc = "0.2.178"
+serde = { version = "1.0.228", features = ["rc", "derive"] }
+serde_json = "1.0.147"
+serde_yaml = "0.9.34"
+sysinfo = "0.37.2"
+tracing = "0.1.44"
+tracing-forest = { version = "0.3.0", features = ["ansi", "ansi_term", "chrono", "env-filter", "serde"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "local-time", "time", "tracing"] }
+
+[dev-dependencies]
+ctor = "0.6.3"
+serial_test = "3.2.0"
