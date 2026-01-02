@@ -86,8 +86,10 @@ impl Service {
                 tracing::error!("failed to fork");
             }
             0 => {
-                // FIXME test this
-                SignalSet::default().fill().unblock().expect("failed to unblock signals");
+                SignalSet::default()
+                    .fill()
+                    .restore()
+                    .expect("failed to restore default signal handlers");
                 let mut cmd = process::Command::new(self.command.command.as_str());
                 cmd.args(&self.command.args)
                     .stdin(process::Stdio::null())
@@ -126,7 +128,7 @@ impl Service {
             let mut guard = self._info.lock().unwrap();
             let info = Arc::make_mut(&mut guard);
             info.active = false;
-            info.set_stopped();
+            info.set_finished();
         }
     }
 

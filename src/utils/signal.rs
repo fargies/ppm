@@ -22,7 +22,7 @@
 */
 
 use anyhow::Result;
-use std::{fmt::Debug, ops::Deref, ptr::null_mut};
+use std::{fmt::Debug, ops::Deref, ptr::null_mut, sync::LazyLock};
 
 /// POSIX Signal wrapper
 #[derive(Clone, Copy, PartialEq)]
@@ -31,6 +31,20 @@ pub struct Signal(pub libc::c_int);
 pub const SIGALRM: Signal = Signal(libc::SIGALRM);
 pub const SIGCHLD: Signal = Signal(libc::SIGCHLD);
 pub const SIGTERM: Signal = Signal(libc::SIGTERM);
+pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
+pub const SIGKILL: Signal = Signal(libc::SIGKILL);
+
+static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
+    let mut sigset: libc::sigset_t = 0;
+    unsafe {
+        libc_check(libc::sigfillset(&mut sigset)).unwrap();
+        // remove signals that can't be controlled from the set
+        libc_check(libc::sigdelset(&mut sigset, libc::SIGSTOP)).unwrap();
+        libc_check(libc::sigdelset(&mut sigset, libc::SIGKILL)).unwrap();
+        libc_check(libc::sigdelset(&mut sigset, 32)).unwrap();
+    }
+    SignalSet(sigset)
+});
 
 impl Signal {
     pub fn kill(pid: libc::pid_t, signal: Signal) -> Result<()> {
@@ -53,21 +67,25 @@ impl Deref for Signal {
 
 impl Debug for Signal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Signal(")?;
+        // f.write_str("Signal(")?;
         match self.0 {
-            libc::SIGALRM => f.write_str("ALRM")?,
-            libc::SIGCHLD => f.write_str("CHLD")?,
-            libc::SIGTERM => f.write_str("TERM")?,
-            sig => write!(f, "{}", sig)?,
+            libc::SIGALRM => f.write_str("SIGALRM"),
+            libc::SIGCHLD => f.write_str("SIGCHLD"),
+            libc::SIGTERM => f.write_str("SIGTERM"),
+            libc::SIGSTOP => f.write_str("SIGSTOP"),
+            libc::SIGKILL => f.write_str("SIGKILL"),
+            sig => write!(f, "SIG({})", sig),
         }
-        f.write_str(")")
+        // f.write_str(")")
     }
 }
 
 /// assert for libc functions
 fn libc_check(res: libc::c_int) -> Result<()> {
     if res != 0 {
-        Err(std::io::Error::last_os_error().into())
+        let err = std::io::Error::last_os_error();
+        tracing::trace_span!("libc_check", ?err);
+        Err(err.into())
     } else {
         Ok(())
     }
@@ -75,13 +93,23 @@ fn libc_check(res: libc::c_int) -> Result<()> {
 
 pub struct SignalSet(pub libc::sigset_t);
 
+impl Debug for SignalSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SignalSet")
+            .field(&format_args!("{:X}", self.0))
+            .finish()
+    }
+}
+
 impl SignalSet {
     /// Block signals in the set
+    #[tracing::instrument(level = "TRACE")]
     pub fn block(&self) -> Result<()> {
         unsafe { libc_check(libc::sigprocmask(libc::SIG_BLOCK, &self.0, null_mut())) }
     }
 
     /// Unblock signals in the set
+    #[tracing::instrument(level = "TRACE")]
     pub fn unblock(&self) -> Result<()> {
         unsafe { libc_check(libc::sigprocmask(libc::SIG_UNBLOCK, &self.0, null_mut())) }
     }
@@ -96,9 +124,7 @@ impl SignalSet {
     }
 
     pub fn fill(&mut self) -> &mut Self {
-        unsafe {
-            libc_check(libc::sigfillset(&mut self.0)).unwrap();
-        }
+        self.0 = FULL_SET.0;
         self
     }
 
@@ -107,6 +133,15 @@ impl SignalSet {
             index: 0,
             sigset: self,
         }
+    }
+
+    #[tracing::instrument(level = "TRACE")]
+    pub fn restore(&self) -> Result<()> {
+        for sig in self {
+            sig.set_handler(libc::SIG_DFL)
+                .inspect_err(|err| tracing::error!(?sig, ?err, "failed to reset handler"))?;
+        }
+        self.unblock()
     }
 }
 
@@ -247,7 +282,6 @@ impl Timer {
     ///
     /// Sets both interval and duration to zero on the system side
     pub fn stop(&self) -> Result<()> {
-
         let itimerval = libc::itimerval {
             it_interval: libc::timeval {
                 tv_sec: 0,
@@ -258,9 +292,7 @@ impl Timer {
                 tv_usec: 0,
             },
         };
-        unsafe {
-            libc_check(libc::setitimer(libc::ITIMER_REAL, &itimerval, null_mut()))
-        }
+        unsafe { libc_check(libc::setitimer(libc::ITIMER_REAL, &itimerval, null_mut())) }
     }
 }
 

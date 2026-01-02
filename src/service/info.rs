@@ -62,30 +62,70 @@ impl Default for Info {
 
 impl Info {
     pub fn set_running(&mut self, pid: libc::pid_t) {
-        self.pid = Some(pid);
-        if self.status != Status::Stopped {
-            self.start_time = Some(std::time::SystemTime::now());
-            self.restarts += 1;
+        match self.status {
+            Status::Created | Status::Finished | Status::Crashed   => {
+                self.pid = Some(pid);
+                self.start_time = Some(std::time::SystemTime::now());
+                self.restarts += 1;
+                self.status = Status::Running;
+                self.end_time = None;
+            },
+            Status::Running => {
+                self.pid = Some(pid);
+            },
+            Status::Stopped => {
+                self.pid = Some(pid);
+                self.status = Status::Running;
+                self.end_time = None;
+            }
         }
-        self.status = Status::Running;
-        self.end_time = None;
     }
 
     pub fn set_finished(&mut self) {
-        self.pid = None;
-        self.status = Status::Finished;
-        self.end_time = Some(std::time::SystemTime::now());
+        match self.status {
+            Status::Running | Status::Stopped => {
+                self.pid = None;
+                self.status = Status::Finished;
+                self.end_time = Some(std::time::SystemTime::now());
+            }
+            Status::Finished => {}
+            _ => tracing::warn!(
+                status = ?self.status,
+                next = ?Status::Finished,
+                "invalid process transition"
+            ),
+        }
     }
 
     pub fn set_stopped(&mut self) {
-        self.status = Status::Stopped;
-        self.end_time = Some(std::time::SystemTime::now());
+        match self.status {
+            Status::Running => {
+                self.status = Status::Stopped;
+                self.end_time = Some(std::time::SystemTime::now());
+            }
+            Status::Stopped => {}
+            _ => tracing::warn!(
+                status = ?self.status,
+                next = ?Status::Stopped,
+                "invalid process transition"
+            ),
+        }
     }
 
     pub fn set_crashed(&mut self) {
-        self.pid = None;
-        self.status = Status::Crashed;
-        self.end_time = Some(std::time::SystemTime::now());
+        match self.status {
+            Status::Running | Status::Stopped => {
+                self.pid = None;
+                self.status = Status::Crashed;
+                self.end_time = Some(std::time::SystemTime::now());
+            }
+            Status::Crashed => {}
+            _ => tracing::warn!(
+                status = ?self.status,
+                next = ?Status::Crashed,
+                "invalid process transition"
+            ),
+        }
     }
 }
 

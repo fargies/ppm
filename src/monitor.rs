@@ -24,7 +24,7 @@
 use anyhow::Result;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     service::{Info, Service, ServiceId, Status},
@@ -34,10 +34,15 @@ use crate::{
     },
 };
 
+mod sysinfo;
+use sysinfo::Sysinfo;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Monitor {
     pub interval: std::time::Duration,
     pub services: DashMap<ServiceId, Arc<Service>>,
+    #[serde(skip)]
+    sysinfo: Mutex<Sysinfo>,
 }
 
 impl Default for Monitor {
@@ -45,6 +50,7 @@ impl Default for Monitor {
         Self {
             interval: std::time::Duration::from_secs(1),
             services: Default::default(),
+            sysinfo: Default::default()
         }
     }
 }
@@ -55,7 +61,7 @@ impl Monitor {
         while let Some((pid, status)) = utils::waitpid(-1) {
             if libc::WIFSIGNALED(status) {
                 let signal = libc::WTERMSIG(status);
-                tracing::debug!(signal, pid, "process killed");
+                tracing::debug!(signal = ?signal::Signal(signal), pid, "process killed");
                 if let Some(service) = self.find_by_pid(pid) {
                     service.set_crashed();
                 }
@@ -94,8 +100,20 @@ impl Monitor {
 
         for srv in self.services.iter() {
             let info = srv.info();
+            // if let Some(pid) = info.pid {
+            //     let info = self.sysinfo.lock().unwrap();
+            //     let proc = info.process(sysinfo::Pid::from(pid as usize));
+            //     let status = proc.map(|x| x.status());
+            //     tracing::trace!(?proc, ?status);
+            // }
 
-            tracing::trace!(?info, name = srv.name, "processing");
+            tracing::trace!(
+                active = info.active,
+                status = ?info.status,
+                pid = ?info.pid,
+                name = srv.name,
+                "processing"
+            );
             if info.status == Status::Crashed
                 && info.active
                 && self.next_restart(&info).is_some_and(|next| next <= now)
@@ -120,19 +138,34 @@ impl Monitor {
             }
         }
 
-
+        let timer = Timer::new(self.interval, true);
+        timer.start()?;
         loop {
             let _span = tracing::info_span!(parent: None, "monitor").entered();
 
             self.process();
 
-            let timer = Timer::new(self.interval, false);
-            timer.start()?;
-
             match sigset.wait()? {
-                signal::SIGALRM => tracing::trace!("timer expired"),
+                signal::SIGALRM => {
+                    tracing::trace!("timer expired");
+                    // self.sysinfo.lock().unwrap().refresh_all();
+                    // self.sysinfo.lock().unwrap().refresh_processes_specifics(
+                    //     sysinfo::ProcessesToUpdate::Some(
+                    //         self.services
+                    //             .iter()
+                    //             .filter_map(|x| {
+                    //                 x.info().pid.map(|p| sysinfo::Pid::from_u32(p as u32))
+                    //             })
+                    //             .collect::<Vec<_>>()
+                    //             .as_slice(),
+                    //     ),
+                    //     true,
+                    //     sysinfo::ProcessRefreshKind::nothing()
+                    //         .with_cpu()
+                    //         .with_memory(),
+                    // );
+                }
                 signal::SIGCHLD => {
-                    timer.stop()?;
                     self.on_sigchld()
                 }
                 signal::SIGTERM => {
@@ -170,7 +203,10 @@ extern "C" fn blocked_sighandler() {
 mod tests {
     use super::*;
 
-    use crate::{service::{Command, Status}, utils::signal::Signal};
+    use crate::{
+        service::{Command, Status},
+        utils::signal::Signal,
+    };
     use anyhow::Result;
     use serial_test::serial;
 
@@ -215,9 +251,39 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
+    /// ensure that signals are unblocked for the child process
+    fn sigterm_child() -> Result<()> {
+        let mon = Arc::new(Monitor::default());
+        let service = mon.insert(Service::new(
+            "test_sigterm_child",
+            Command::new("sleep", ["300"]),
+        ));
+
+        let join_handle = {
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(1, service.info().restarts);
+        match service.info().pid {
+            Some(pid) => Signal::kill(pid, signal::SIGTERM)?,
+            None => panic!("process not started"),
+        };
+        std::thread::sleep(mon.interval * 2);
+        assert_ne!(1, service.info().restarts);
+
+        Signal::kill(unsafe { libc::getpid() }, signal::SIGTERM)?;
+        join_handle.join().unwrap()?;
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
     fn run() -> Result<()> {
-        let mut mon = Arc::new(Monitor::default());
-        Arc::get_mut(&mut mon).unwrap().interval = std::time::Duration::from_millis(100);
+        let mon = Arc::new(Monitor {
+            interval: std::time::Duration::from_millis(100),
+            ..Default::default()
+        });
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
 
         let join_handle = {
@@ -236,7 +302,10 @@ mod tests {
     #[test]
     #[serial(waitpid)]
     fn stopped() -> Result<()> {
-        let mut mon = Arc::new(Monitor::default());
+        let mon = Arc::new(Monitor {
+            interval: std::time::Duration::from_millis(250),
+            ..Default::default()
+        });
         let service = mon.insert(Service::new("test_stopped", Command::new("sleep", ["300"])));
 
         let join_handle = {
@@ -253,10 +322,9 @@ mod tests {
         assert_eq!(service.info().status, Status::Stopped);
 
         Signal::kill(info.pid.unwrap(), signal::Signal(libc::SIGCONT))?;
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(mon.interval * 2);
 
-        /// FIXME remove
-        std::thread::sleep(std::time::Duration::from_millis(1000000));
+        // FIXME fix this
 
         assert_eq!(service.info().status, Status::Running);
 
