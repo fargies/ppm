@@ -63,16 +63,16 @@ impl Default for Info {
 impl Info {
     pub fn set_running(&mut self, pid: libc::pid_t) {
         match self.status {
-            Status::Created | Status::Finished | Status::Crashed   => {
+            Status::Created | Status::Finished | Status::Crashed => {
                 self.pid = Some(pid);
                 self.start_time = Some(std::time::SystemTime::now());
                 self.restarts += 1;
                 self.status = Status::Running;
                 self.end_time = None;
-            },
+            }
             Status::Running => {
                 self.pid = Some(pid);
-            },
+            }
             Status::Stopped => {
                 self.pid = Some(pid);
                 self.status = Status::Running;
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn serde() {
-        let data = "active: true\nstatus: Stopped\nrestarts: 0\n";
+        let data = "active: true\nstatus: Created\nrestarts: 0\n";
         let info = Info::default();
         assert_eq!(data, serde_yaml::to_string(&info).unwrap());
         assert_eq!(serde_yaml::from_str::<Info>(data).unwrap(), info);

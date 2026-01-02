@@ -43,9 +43,12 @@ mod tests {
 
     #[test]
     fn serde() {
-        assert_eq!("Online\n", serde_yaml::to_string(&Status::Running).unwrap());
         assert_eq!(
-            serde_yaml::from_str::<Status>("Online").unwrap(),
+            "Running\n",
+            serde_yaml::to_string(&Status::Running).unwrap()
+        );
+        assert_eq!(
+            serde_yaml::from_str::<Status>("Running").unwrap(),
             Status::Running
         );
     }

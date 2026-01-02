@@ -50,7 +50,7 @@ impl Default for Monitor {
         Self {
             interval: std::time::Duration::from_secs(1),
             services: Default::default(),
-            sysinfo: Default::default()
+            sysinfo: Default::default(),
         }
     }
 }
@@ -100,12 +100,6 @@ impl Monitor {
 
         for srv in self.services.iter() {
             let info = srv.info();
-            // if let Some(pid) = info.pid {
-            //     let info = self.sysinfo.lock().unwrap();
-            //     let proc = info.process(sysinfo::Pid::from(pid as usize));
-            //     let status = proc.map(|x| x.status());
-            //     tracing::trace!(?proc, ?status);
-            // }
 
             tracing::trace!(
                 active = info.active,
@@ -129,6 +123,7 @@ impl Monitor {
             sig.set_handler(blocked_sighandler as usize)?;
         }
         sigset.block()?;
+        let _ondrop = utils::OnDrop::new(|| sigset.restore().unwrap());
 
         for srv in self.services.iter() {
             let info = srv.info();
@@ -148,26 +143,9 @@ impl Monitor {
             match sigset.wait()? {
                 signal::SIGALRM => {
                     tracing::trace!("timer expired");
-                    // self.sysinfo.lock().unwrap().refresh_all();
-                    // self.sysinfo.lock().unwrap().refresh_processes_specifics(
-                    //     sysinfo::ProcessesToUpdate::Some(
-                    //         self.services
-                    //             .iter()
-                    //             .filter_map(|x| {
-                    //                 x.info().pid.map(|p| sysinfo::Pid::from_u32(p as u32))
-                    //             })
-                    //             .collect::<Vec<_>>()
-                    //             .as_slice(),
-                    //     ),
-                    //     true,
-                    //     sysinfo::ProcessRefreshKind::nothing()
-                    //         .with_cpu()
-                    //         .with_memory(),
-                    // );
+                    self.sysinfo.lock().unwrap().update(&self.services);
                 }
-                signal::SIGCHLD => {
-                    self.on_sigchld()
-                }
+                signal::SIGCHLD => self.on_sigchld(),
                 signal::SIGTERM => {
                     tracing::info!("termination requested (SIGTERM)");
                     return Ok(());
@@ -195,8 +173,8 @@ impl Monitor {
     }
 }
 
-extern "C" fn blocked_sighandler() {
-    panic!("blocked signal caught");
+extern "C" fn blocked_sighandler(sig: libc::c_int) {
+    panic!("blocked signal caught: {}", sig);
 }
 
 #[cfg(test)]
@@ -246,6 +224,8 @@ mod tests {
 
         assert_eq!(sigset.wait()?, signal::SIGCHLD);
         Monitor::default().on_sigchld();
+
+        sigset.restore()?;
         Ok(())
     }
 

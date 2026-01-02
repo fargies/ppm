@@ -22,7 +22,7 @@
 */
 
 mod serde_utils;
-pub use serde_utils::{wrap_iterator, wrap_map_iterator, InnerRef};
+pub use serde_utils::{InnerRef, wrap_map_iterator};
 
 pub mod signal;
 
@@ -48,9 +48,29 @@ pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Dura
 pub fn waitpid(pid: libc::pid_t) -> Option<(libc::pid_t, libc::c_int)> {
     let mut status: libc::c_int = 0;
     let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG | libc::WUNTRACED) };
-    if ret > 0 {
-        Some((ret, status))
-    } else {
-        None
+    if ret > 0 { Some((ret, status)) } else { None }
+}
+
+pub struct OnDrop<T>(Option<T>)
+where
+    T: FnOnce();
+
+impl<T> OnDrop<T>
+where
+    T: FnOnce(),
+{
+    pub fn new(fun: T) -> Self {
+        Self(Some(fun))
+    }
+}
+
+impl<T> Drop for OnDrop<T>
+where
+    T: FnOnce(),
+{
+    fn drop(&mut self) {
+        if let Some(callback) = self.0.take() {
+            callback()
+        }
     }
 }

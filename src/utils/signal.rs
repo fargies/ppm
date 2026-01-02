@@ -35,15 +35,16 @@ pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
 
 static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
-    let mut sigset: libc::sigset_t = 0;
-    unsafe {
+    SignalSet(unsafe {
+        let mut sigset: libc::sigset_t = std::mem::zeroed();
         libc_check(libc::sigfillset(&mut sigset)).unwrap();
         // remove signals that can't be controlled from the set
         libc_check(libc::sigdelset(&mut sigset, libc::SIGSTOP)).unwrap();
         libc_check(libc::sigdelset(&mut sigset, libc::SIGKILL)).unwrap();
+        #[cfg(target_os = "macos")]
         libc_check(libc::sigdelset(&mut sigset, 32)).unwrap();
-    }
-    SignalSet(sigset)
+        sigset
+    })
 });
 
 impl Signal {
@@ -96,7 +97,9 @@ pub struct SignalSet(pub libc::sigset_t);
 impl Debug for SignalSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("SignalSet")
-            .field(&format_args!("{:X}", self.0))
+            .field(&format_args!("{:X}", unsafe {
+                *(&self.0 as *const _ as *const u32)
+            }))
             .finish()
     }
 }
@@ -105,13 +108,33 @@ impl SignalSet {
     /// Block signals in the set
     #[tracing::instrument(level = "TRACE")]
     pub fn block(&self) -> Result<()> {
-        unsafe { libc_check(libc::sigprocmask(libc::SIG_BLOCK, &self.0, null_mut())) }
+        unsafe { libc_check(libc::pthread_sigmask(libc::SIG_BLOCK, &self.0, null_mut())) }
+    }
+
+    /// Build a full-set
+    pub fn full() -> Self {
+        Self(FULL_SET.0)
+    }
+
+    /// Build an empty set
+    pub fn empty() -> Self {
+        Self(unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc_check(libc::sigemptyset(&mut set)).unwrap();
+            set
+        })
     }
 
     /// Unblock signals in the set
     #[tracing::instrument(level = "TRACE")]
     pub fn unblock(&self) -> Result<()> {
-        unsafe { libc_check(libc::sigprocmask(libc::SIG_UNBLOCK, &self.0, null_mut())) }
+        unsafe {
+            libc_check(libc::pthread_sigmask(
+                libc::SIG_UNBLOCK,
+                &self.0,
+                null_mut(),
+            ))
+        }
     }
 
     /// Wait for a (blocked) signal in the set to raise
@@ -147,11 +170,7 @@ impl SignalSet {
 
 impl Default for SignalSet {
     fn default() -> Self {
-        let mut set: libc::sigset_t = 0;
-        unsafe {
-            libc_check(libc::sigemptyset(&mut set)).unwrap();
-        }
-        Self(set)
+        Self::empty()
     }
 }
 
@@ -190,9 +209,9 @@ impl Iterator for SignalSetIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         for i in self.index..32 {
-            if (self.sigset.0 & (1 << i)) != 0 {
+            if unsafe { libc::sigismember(&self.sigset.0, i as i32) } == 1 {
                 self.index = i + 1;
-                return Some(Signal(self.index as i32));
+                return Some(Signal(i as i32));
             }
         }
         None
@@ -208,23 +227,28 @@ impl<'a> IntoIterator for &'a SignalSet {
     }
 }
 
-/// Signal based timer
+/// Signal based POSIX timer
 ///
 /// raises a `Signal(ALRM)` signal on expiry
-pub struct Timer(libc::itimerval);
+pub struct Timer {
+    id: libc::timer_t,
+    timerspec: libc::itimerspec,
+}
 
 impl Default for Timer {
     fn default() -> Self {
-        Self(libc::itimerval {
-            it_interval: libc::timeval {
-                tv_sec: 0,
-                tv_usec: 0,
-            },
-            it_value: libc::timeval {
-                tv_sec: 0,
-                tv_usec: 0,
-            },
-        })
+        let mut timer_id: libc::timer_t = unsafe { std::mem::zeroed() };
+        let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
+        sigev.sigev_notify = libc::SIGEV_SIGNAL;
+        sigev.sigev_signo = libc::SIGALRM;
+
+        libc_check(unsafe { libc::timer_create(libc::CLOCK_MONOTONIC, &mut sigev, &mut timer_id) })
+            .unwrap();
+
+        Self {
+            id: timer_id,
+            timerspec: unsafe { std::mem::zeroed::<libc::itimerspec>() },
+        }
     }
 }
 
@@ -241,64 +265,55 @@ impl Timer {
 
     /// Set timer duration
     pub fn set_duration(&mut self, duration: std::time::Duration) -> &mut Self {
-        self.0.it_value.tv_sec = duration.as_secs() as i64;
-        self.0.it_value.tv_usec = duration.subsec_micros() as i32;
+        self.timerspec.it_value.tv_sec = duration.as_secs() as i64;
+        self.timerspec.it_value.tv_nsec = duration.subsec_nanos().into();
         self
     }
 
     /// Set interval
     pub fn set_interval(&mut self, duration: std::time::Duration) -> &mut Self {
-        self.0.it_interval.tv_sec = duration.as_secs() as i64;
-        self.0.it_interval.tv_usec = duration.subsec_micros() as i32;
+        self.timerspec.it_interval.tv_sec = duration.as_secs() as i64;
+        self.timerspec.it_interval.tv_nsec = duration.subsec_nanos().into();
         self
     }
 
     /// Retrieve the timer duration
     pub fn duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.0.it_value.tv_sec as u64)
-            + std::time::Duration::from_micros(self.0.it_value.tv_usec as u64)
+        std::time::Duration::from_secs(self.timerspec.it_value.tv_sec as u64)
+            + std::time::Duration::from_nanos(self.timerspec.it_value.tv_nsec as u64)
     }
 
     /// Retrieve the timer interval
     pub fn interval(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.0.it_interval.tv_sec as u64)
-            + std::time::Duration::from_micros(self.0.it_interval.tv_usec as u64)
+        std::time::Duration::from_secs(self.timerspec.it_interval.tv_sec as u64)
+            + std::time::Duration::from_nanos(self.timerspec.it_interval.tv_nsec as u64)
     }
 
-    /// Fetch current timer configuration from system
-    ///
-    /// - `duration` will be set to remaining time before next expiry
-    /// - `interval` the timer interval
-    pub fn fetch(&mut self) -> Result<()> {
-        unsafe { libc_check(libc::getitimer(libc::ITIMER_REAL, &mut self.0)) }
+    /// Fetch remaining time on the timer
+    pub fn remaining(&mut self) -> Result<std::time::Duration> {
+        let mut spec = unsafe { std::mem::zeroed::<libc::itimerspec>() };
+        libc_check(unsafe { libc::timer_gettime(self.id, &mut spec) })?;
+        Ok(std::time::Duration::from_secs(spec.it_value.tv_sec as u64)
+            + std::time::Duration::from_nanos(spec.it_value.tv_nsec as u64))
     }
 
     /// Start the system timer
     pub fn start(&self) -> Result<()> {
-        unsafe { libc_check(libc::setitimer(libc::ITIMER_REAL, &self.0, null_mut())) }
+        libc_check(unsafe { libc::timer_settime(self.id, 0, &self.timerspec, null_mut()) })
     }
 
     /// Stop the system timer
     ///
     /// Sets both interval and duration to zero on the system side
     pub fn stop(&self) -> Result<()> {
-        let itimerval = libc::itimerval {
-            it_interval: libc::timeval {
-                tv_sec: 0,
-                tv_usec: 0,
-            },
-            it_value: libc::timeval {
-                tv_sec: 0,
-                tv_usec: 0,
-            },
-        };
-        unsafe { libc_check(libc::setitimer(libc::ITIMER_REAL, &itimerval, null_mut())) }
+        let val = unsafe { std::mem::zeroed::<libc::itimerspec>() };
+        libc_check(unsafe { libc::timer_settime(self.id, 0, &val, null_mut()) })
     }
 }
 
 impl Drop for Timer {
     fn drop(&mut self) {
-        let _ = self.stop();
+        libc_check(unsafe { libc::timer_delete(self.id) }).unwrap();
     }
 }
 
@@ -309,6 +324,12 @@ mod tests {
     use super::*;
     use anyhow::Result;
 
+    #[ctor::ctor]
+    fn prepare() {
+        // rust test framewrok uses threads, the main process may service messages
+        (SignalSet::default() + SIGALRM + SIGTERM).block();
+    }
+
     #[test]
     fn debug() {
         let sig = Signal(libc::SIGTERM);
@@ -317,34 +338,33 @@ mod tests {
     }
 
     #[test]
+    /// Some signals may not be blocked depending on the platform
+    ///
+    /// Ensure we can block and unblock a full signalset
+    fn full_set() -> Result<()> {
+        let sigset = SignalSet::default();
+        sigset.block()?;
+        sigset.unblock()
+    }
+
+    #[test]
     fn timer() -> Result<()> {
         let sigset = SignalSet::default() + SIGALRM;
         sigset.block()?;
-
         let mut timer = Timer::default();
         timer
             .set_duration(Duration::from_millis(250))
             .set_interval(Duration::from_millis(250))
             .start()?;
-
         assert_eq!(SIGALRM, sigset.wait()?);
         assert_eq!(SIGALRM, sigset.wait()?);
 
-        {
-            let mut other = Timer::default();
-            other.fetch()?;
-            assert!(other.duration() < timer.duration());
-            assert_eq!(other.interval(), timer.interval());
-        }
-
+        assert_ne!(timer.remaining()?, Duration::ZERO);
         timer.stop()?;
         assert_eq!(timer.duration(), Duration::from_millis(250));
         assert_eq!(timer.interval(), Duration::from_millis(250));
 
-        timer.fetch()?;
-        assert_eq!(timer.duration(), Duration::from_millis(0));
-        assert_eq!(timer.interval(), Duration::from_millis(0));
-
+        assert_eq!(timer.remaining()?, Duration::ZERO);
         Ok(())
     }
 

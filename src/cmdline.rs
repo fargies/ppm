@@ -23,7 +23,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 mod client;

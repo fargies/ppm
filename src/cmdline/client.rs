@@ -24,7 +24,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::{
-    io::{BufReader, Write},
+    io::BufReader,
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };

@@ -33,7 +33,7 @@ use std::{
 
 use crate::{
     monitor::Monitor,
-    utils::{InnerRef, wrap_iterator, wrap_map_iterator},
+    utils::{InnerRef, wrap_map_iterator},
 };
 
 use super::Action;
@@ -113,7 +113,7 @@ impl Server {
         while let Some(Ok(action)) = reader.next() {
             tracing::trace!(?action, "action requested");
             match action {
-                Action::Daemon {} => todo!(),
+                Action::Daemon => todo!(),
                 Action::List => serde_json::to_writer(
                     &stream,
                     &wrap_map_iterator(

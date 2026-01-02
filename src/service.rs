@@ -168,8 +168,10 @@ impl Service {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial(waitpid)]
     fn spawn() {
         let mut srv = Service::new("test", Command::new("ls", ["-la"]));
         srv.start();
@@ -180,10 +182,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         srv.stop();
         assert_eq!(srv.info().pid, None);
-        assert_eq!(srv.info().status, Status::Stopped);
+        assert_eq!(srv.info().status, Status::Finished);
     }
 
     #[test]
+    #[serial(waitpid)]
     fn stop() {
         let srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
         srv.start();
@@ -192,7 +195,7 @@ mod tests {
 
         srv.stop();
         assert_eq!(srv.info().pid, None);
-        assert_eq!(srv.info().status, Status::Stopped);
+        assert_eq!(srv.info().status, Status::Finished);
     }
 
     #[test]
