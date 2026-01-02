@@ -21,13 +21,33 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct Stats {}
-
-impl Default for Stats {
-    fn default() -> Self {
-        Self {}
-    }
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
+pub struct Stats {
+    /// CPU usage in `%`
+    pub cpu_usage: f32,
+    /// total aggregated CPU time
+    pub cpu_time: std::time::Duration,
+    /// I/O read in [bytes/s]
+    pub io_read: u64,
+    /// total I/O read in [bytes]
+    pub total_io_read: u64,
+    /// I/O write in [bytes/s]
+    pub io_write: u64,
+    /// total I/O write in [bytes]
+    pub total_io_write: u64,
+    /// Memory resident size in [bytes]
+    pub mem_rss: u64,
+    /// Memory virtual size in [bytes]
+    pub mem_vsz: u64,
+    /// Uptime
+    #[serde(
+        with = "humantime_serde",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub uptime: Option<Duration>,
 }

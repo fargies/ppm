@@ -21,10 +21,11 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::cell::Cell;
+use std::{cell::Cell, sync::LazyLock};
 
 use serde::{Serialize, Serializer};
 
+/// Serialize a seq iterator
 pub struct SeqWrapper<T>(Cell<Option<T>>);
 
 impl<I, P> Serialize for SeqWrapper<I>
@@ -44,6 +45,7 @@ where
     SeqWrapper(Cell::new(Some(i)))
 }
 
+/// Serialize a map iterator
 pub struct MapWrapper<T>(Cell<Option<T>>);
 
 impl<I, K, V> Serialize for MapWrapper<I>
@@ -64,6 +66,7 @@ where
     MapWrapper(Cell::new(Some(i)))
 }
 
+/// Wrap a field in an object for serialization, keeping the object alive
 pub struct InnerRef<K, F, T>(pub K, pub F) where F: Fn(&K) -> &T;
 
 impl<K, T, F> Serialize for InnerRef<K, F, T>

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2025 Sylvain Fargier
+** Copyright (C) 2026 Sylvain Fargier
 **
 ** This software is provided 'as-is', without any express or implied
 ** warranty.  In no event will the authors be held liable for any damages
@@ -17,40 +17,8 @@
 **    misrepresented as being the original software.
 ** 3. This notice may not be removed or altered from any source distribution.
 **
-** Created on: 2025-12-22T22:55:22
+** Created on: 2026-01-01T15:15:33
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-mod serde_utils;
-pub use serde_utils::{wrap_iterator, wrap_map_iterator, InnerRef};
-
-pub mod signal;
-
-pub mod serializers;
-
-pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Duration) -> bool {
-    unsafe {
-        libc::kill(pid, signal);
-    }
-
-    let start = std::time::Instant::now();
-    loop {
-        if waitpid(pid).is_some() {
-            return true;
-        } else if start.elapsed() < timeout {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        } else {
-            return false;
-        }
-    }
-}
-
-pub fn waitpid(pid: libc::pid_t) -> Option<(libc::pid_t, libc::c_int)> {
-    let mut status: libc::c_int = 0;
-    let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG | libc::WUNTRACED) };
-    if ret > 0 {
-        Some((ret, status))
-    } else {
-        None
-    }
-}
+pub mod instant;
