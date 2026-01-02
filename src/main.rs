@@ -25,8 +25,7 @@ use anyhow::Result;
 use clap::Parser;
 use cmdline::{Action, Args, Client};
 use std::{env::current_exe, os::unix::process::CommandExt, path::Path, process};
-use tracing_forest::{ForestLayer};
-use tracing_subscriber::{fmt, EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod cmdline;
 pub mod monitor;
@@ -58,13 +57,13 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing_forest::ForestLayer;
 
     #[ctor::ctor]
     fn log_init() {
         Registry::default()
             .with(EnvFilter::from_default_env())
             .with(ForestLayer::default())
-            // .with(fmt::layer())
             .try_init();
     }
 }

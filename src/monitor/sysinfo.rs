@@ -78,11 +78,12 @@ impl Sysinfo {
                     _ => {}
                 }
 
-                let mut stats = Arc::unwrap_or_clone(srv.stats());
+                let stats = Arc::unwrap_or_clone(srv.stats());
                 let uptime = info.start_time.map(|t| t.elapsed());
-                let interval = stats.uptime.map(|last_uptime| uptime.map(|uptime| uptime - last_uptime));
-                let interval = if let Some(s)
-
+                // let interval = stats
+                //     .uptime
+                //     .map(|last_uptime| uptime.map(|uptime| uptime - last_uptime));
+                // let interval = if let Some(s)
             } else if info.pid.is_some() {
                 srv.set_crashed();
             }
@@ -117,14 +118,14 @@ impl Sysinfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        service::{Command, Status},
-        utils::signal::{self, Signal},
-    };
+    use crate::service::{Command, Status};
+    use anyhow::Result;
+    use serial_test::serial;
 
     use super::*;
 
     #[test]
+    #[serial(waitpid)] // raises SIGCHLD
     fn update_empty() -> Result<()> {
         let mut sysinfo = Sysinfo::default();
         let services = DashMap::<ServiceId, Arc<Service>>::new();

@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{cell::Cell, sync::LazyLock};
+use std::cell::Cell;
 
 use serde::{Serialize, Serializer};
 
