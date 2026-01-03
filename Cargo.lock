@@ -98,6 +98,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
+name = "blocksr"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f2edbb85a6fda38df256e07eaa87c50981ac6a4b156b1e14602b7d1c69579ff"
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -228,6 +234,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ececcb659e7ba858fb4f10388c250a7252eb0a27373f1a72b8748afdd248e587"
 dependencies = [
  "powerfmt",
+]
+
+[[package]]
+name = "dispatchr"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "458d901829708d531b9a99bb276a00501182bfb829a2352154ff0d37e85240f1"
+dependencies = [
+ "blocksr",
+ "libc",
+ "priority",
 ]
 
 [[package]]
@@ -588,6 +605,7 @@ dependencies = [
  "clap",
  "ctor",
  "dashmap",
+ "dispatchr",
  "humantime-serde",
  "libc",
  "serde",
@@ -599,6 +617,12 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "priority"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3331288c73a29bd726cd92d947059399bf8e4b01f13d24f02caecd5187e5b5d5"
 
 [[package]]
 name = "proc-macro2"

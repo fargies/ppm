@@ -22,13 +22,7 @@ serde_json = "1.0.148"
 serde_yaml = "0.9.34"
 sysinfo = "0.37.2"
 tracing = "0.1.44"
-tracing-forest = { version = "0.3.0", features = [
-    "ansi",
-    "ansi_term",
-    "chrono",
-    "env-filter",
-    "serde",
-] }
+tracing-forest = { version = "0.3.0", features = ["ansi", "ansi_term", "chrono", "env-filter", "serde"] }
 tracing-subscriber = { version = "0.3.22", features = [
     "env-filter",
     "local-time",
@@ -39,3 +33,6 @@ tracing-subscriber = { version = "0.3.22", features = [
 [dev-dependencies]
 ctor = "0.6.3"
 serial_test = "3.2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dispatchr = "1.0.0"
