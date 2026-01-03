@@ -64,7 +64,7 @@ static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     })
 });
 
-pub fn gettid() -> usize {
+pub fn gettid() -> libc::pthread_t {
     unsafe { libc::pthread_self() }
 }
 
@@ -82,7 +82,7 @@ impl Signal {
     }
 
     #[tracing::instrument(level = "TRACE", err)]
-    pub fn kill_thread<S>(tid: usize, signal: S) -> Result<()>
+    pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> Result<()>
     where
     S: Into<Signal> + Debug
     {

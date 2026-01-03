@@ -21,6 +21,11 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use libc::{timer_t, sigevent, itimerspec ,timer_create, timer_settime, timer_delete};
+use std::{ptr::null_mut, time::Duration};
+use anyhow::Result;
+
+use super::libc_check;
 
 /// Signal based POSIX timer
 ///
@@ -33,7 +38,7 @@ pub struct Timer {
 impl Default for Timer {
     fn default() -> Self {
         let mut timer_id: timer_t = unsafe { std::mem::zeroed() };
-        let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
+        let mut sigev: sigevent = unsafe { std::mem::zeroed() };
         sigev.sigev_notify = libc::SIGEV_SIGNAL;
         sigev.sigev_signo = libc::SIGALRM;
 
@@ -49,7 +54,7 @@ impl Default for Timer {
 
 impl Timer {
     /// Create a new timer
-    pub fn new(duration: std::time::Duration, repeat: bool) -> Self {
+    pub fn new(duration: Duration, repeat: bool) -> Self {
         let mut ret = Timer::default();
         ret.set_duration(duration);
         if repeat {
@@ -59,29 +64,29 @@ impl Timer {
     }
 
     /// Set timer duration
-    pub fn set_duration(&mut self, duration: std::time::Duration) -> &mut Self {
+    pub fn set_duration(&mut self, duration: Duration) -> &mut Self {
         self.timerspec.it_value.tv_sec = duration.as_secs() as i64;
         self.timerspec.it_value.tv_nsec = duration.subsec_nanos().into();
         self
     }
 
     /// Set interval
-    pub fn set_interval(&mut self, duration: std::time::Duration) -> &mut Self {
+    pub fn set_interval(&mut self, duration: Duration) -> &mut Self {
         self.timerspec.it_interval.tv_sec = duration.as_secs() as i64;
         self.timerspec.it_interval.tv_nsec = duration.subsec_nanos().into();
         self
     }
 
     /// Retrieve the timer duration
-    pub fn duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timerspec.it_value.tv_sec as u64)
-            + std::time::Duration::from_nanos(self.timerspec.it_value.tv_nsec as u64)
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs(self.timerspec.it_value.tv_sec as u64)
+            + Duration::from_nanos(self.timerspec.it_value.tv_nsec as u64)
     }
 
     /// Retrieve the timer interval
-    pub fn interval(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timerspec.it_interval.tv_sec as u64)
-            + std::time::Duration::from_nanos(self.timerspec.it_interval.tv_nsec as u64)
+    pub fn interval(&self) -> Duration {
+        Duration::from_secs(self.timerspec.it_interval.tv_sec as u64)
+            + Duration::from_nanos(self.timerspec.it_interval.tv_nsec as u64)
     }
 
     /// Start the system timer
