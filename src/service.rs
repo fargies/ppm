@@ -86,8 +86,7 @@ impl Service {
                 tracing::error!("failed to fork");
             }
             0 => {
-                SignalSet::default()
-                    .fill()
+                SignalSet::full()
                     .restore()
                     .expect("failed to restore default signal handlers");
                 let mut cmd = process::Command::new(self.command.command.as_str());

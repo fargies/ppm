@@ -22,7 +22,24 @@
 */
 
 use anyhow::Result;
-use std::{fmt::Debug, ops::Deref, ptr::null_mut, sync::LazyLock};
+use std::{
+    fmt::Debug,
+    ops::Deref,
+    ptr::{null, null_mut},
+    sync::LazyLock,
+};
+
+#[cfg(target_os = "linux")]
+mod posix;
+
+#[cfg(target_os = "linux")]
+pub use posix::Timer;
+
+#[cfg(target_os = "macos")]
+mod macos;
+
+#[cfg(target_os = "macos")]
+pub use macos::Timer;
 
 /// POSIX Signal wrapper
 #[derive(Clone, Copy, PartialEq)]
@@ -47,11 +64,32 @@ static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     })
 });
 
+pub fn gettid() -> usize {
+    unsafe { libc::pthread_self() }
+}
+
+pub fn getpid() -> libc::pid_t {
+    unsafe { libc::getpid() }
+}
+
 impl Signal {
-    pub fn kill(pid: libc::pid_t, signal: Signal) -> Result<()> {
-        unsafe { libc_check(libc::kill(pid, *signal)) }
+    #[tracing::instrument(level = "TRACE", err)]
+    pub fn kill<S>(pid: libc::pid_t, signal: S) -> Result<()>
+    where
+        S: Into<Signal> + Debug,
+    {
+        unsafe { libc_check(libc::kill(pid, *signal.into())) }
     }
 
+    #[tracing::instrument(level = "TRACE", err)]
+    pub fn kill_thread<S>(tid: usize, signal: S) -> Result<()>
+    where
+    S: Into<Signal> + Debug
+    {
+        unsafe { libc_check(libc::pthread_kill(tid, *signal.into())) }
+    }
+
+    #[tracing::instrument(level = "TRACE", err)]
     pub fn set_handler(&self, handler: usize) -> Result<()> {
         let ret = unsafe { libc::signal(self.0, handler) };
         libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
@@ -81,6 +119,12 @@ impl Debug for Signal {
     }
 }
 
+impl From<libc::c_int> for Signal {
+    fn from(value: libc::c_int) -> Self {
+        Signal(value)
+    }
+}
+
 /// assert for libc functions
 fn libc_check(res: libc::c_int) -> Result<()> {
     if res != 0 {
@@ -106,14 +150,44 @@ impl Debug for SignalSet {
 
 impl SignalSet {
     /// Block signals in the set
-    #[tracing::instrument(level = "TRACE")]
+    #[tracing::instrument(fields(pid= getpid(), tid = gettid()), level = "TRACE", err)]
     pub fn block(&self) -> Result<()> {
         unsafe { libc_check(libc::pthread_sigmask(libc::SIG_BLOCK, &self.0, null_mut())) }
+    }
+
+    /// Unblock signals in the set
+    #[tracing::instrument(fields(pid= getpid(), tid = gettid()), level = "TRACE", err)]
+    pub fn unblock(&self) -> Result<()> {
+        unsafe {
+            libc_check(libc::pthread_sigmask(
+                libc::SIG_UNBLOCK,
+                &self.0,
+                null_mut(),
+            ))
+        }
     }
 
     /// Build a full-set
     pub fn full() -> Self {
         Self(FULL_SET.0)
+    }
+
+    /// Retrieve pending signals set
+    #[tracing::instrument(level = "TRACE", ret)]
+    pub fn pending() -> Self {
+        Self(unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc_check(libc::sigpending(&mut set)).unwrap();
+            set
+        })
+    }
+
+    pub fn load() -> Self {
+        Self(unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc_check(libc::pthread_sigmask(libc::SIG_UNBLOCK, null(), &mut set)).unwrap();
+            set
+        })
     }
 
     /// Build an empty set
@@ -125,30 +199,33 @@ impl SignalSet {
         })
     }
 
-    /// Unblock signals in the set
-    #[tracing::instrument(level = "TRACE")]
-    pub fn unblock(&self) -> Result<()> {
-        unsafe {
-            libc_check(libc::pthread_sigmask(
-                libc::SIG_UNBLOCK,
-                &self.0,
-                null_mut(),
-            ))
-        }
-    }
-
     /// Wait for a (blocked) signal in the set to raise
+    #[tracing::instrument(level = "TRACE", ret)]
     pub fn wait(&self) -> Result<Signal> {
         unsafe {
-            let mut sig: libc::c_int = 0;
-            libc_check(libc::sigwait(&self.0, &mut sig))?;
-            Ok(Signal(sig))
+            loop {
+                let mut sig: libc::c_int = 0;
+                libc_check(libc::sigwait(&self.0, &mut sig))?;
+                let sig = Signal(sig);
+                if self.contains(sig) {
+                    return Ok(sig);
+                }
+            }
         }
     }
 
+    /// Fills the set with blockable signals
     pub fn fill(&mut self) -> &mut Self {
         self.0 = FULL_SET.0;
         self
+    }
+
+    /// Test if signal is in the set
+    pub fn contains<S>(&self, signal: S) -> bool
+    where
+        S: Into<Signal>,
+    {
+        unsafe { libc::sigismember(&self.0, signal.into().0) == 1 }
     }
 
     pub fn iter<'a>(&'a self) -> SignalSetIterator<'a> {
@@ -208,10 +285,12 @@ impl Iterator for SignalSetIterator<'_> {
     type Item = Signal;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let mut sig = Signal(0);
         for i in self.index..32 {
-            if unsafe { libc::sigismember(&self.sigset.0, i as i32) } == 1 {
+            sig.0 = i.into();
+            if self.sigset.contains(sig) {
                 self.index = i + 1;
-                return Some(Signal(i as i32));
+                return Some(sig);
             }
         }
         None
@@ -227,98 +306,9 @@ impl<'a> IntoIterator for &'a SignalSet {
     }
 }
 
-/// Signal based POSIX timer
-///
-/// raises a `Signal(ALRM)` signal on expiry
-pub struct Timer {
-    id: libc::timer_t,
-    timerspec: libc::itimerspec,
-}
-
-impl Default for Timer {
-    fn default() -> Self {
-        let mut timer_id: libc::timer_t = unsafe { std::mem::zeroed() };
-        let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
-        sigev.sigev_notify = libc::SIGEV_SIGNAL;
-        sigev.sigev_signo = libc::SIGALRM;
-
-        libc_check(unsafe { libc::timer_create(libc::CLOCK_MONOTONIC, &mut sigev, &mut timer_id) })
-            .unwrap();
-
-        Self {
-            id: timer_id,
-            timerspec: unsafe { std::mem::zeroed::<libc::itimerspec>() },
-        }
-    }
-}
-
-impl Timer {
-    /// Create a new timer
-    pub fn new(duration: std::time::Duration, repeat: bool) -> Self {
-        let mut ret = Timer::default();
-        ret.set_duration(duration);
-        if repeat {
-            ret.set_interval(duration);
-        }
-        ret
-    }
-
-    /// Set timer duration
-    pub fn set_duration(&mut self, duration: std::time::Duration) -> &mut Self {
-        self.timerspec.it_value.tv_sec = duration.as_secs() as i64;
-        self.timerspec.it_value.tv_nsec = duration.subsec_nanos().into();
-        self
-    }
-
-    /// Set interval
-    pub fn set_interval(&mut self, duration: std::time::Duration) -> &mut Self {
-        self.timerspec.it_interval.tv_sec = duration.as_secs() as i64;
-        self.timerspec.it_interval.tv_nsec = duration.subsec_nanos().into();
-        self
-    }
-
-    /// Retrieve the timer duration
-    pub fn duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timerspec.it_value.tv_sec as u64)
-            + std::time::Duration::from_nanos(self.timerspec.it_value.tv_nsec as u64)
-    }
-
-    /// Retrieve the timer interval
-    pub fn interval(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timerspec.it_interval.tv_sec as u64)
-            + std::time::Duration::from_nanos(self.timerspec.it_interval.tv_nsec as u64)
-    }
-
-    /// Fetch remaining time on the timer
-    pub fn remaining(&mut self) -> Result<std::time::Duration> {
-        let mut spec = unsafe { std::mem::zeroed::<libc::itimerspec>() };
-        libc_check(unsafe { libc::timer_gettime(self.id, &mut spec) })?;
-        Ok(std::time::Duration::from_secs(spec.it_value.tv_sec as u64)
-            + std::time::Duration::from_nanos(spec.it_value.tv_nsec as u64))
-    }
-
-    /// Start the system timer
-    pub fn start(&self) -> Result<()> {
-        libc_check(unsafe { libc::timer_settime(self.id, 0, &self.timerspec, null_mut()) })
-    }
-
-    /// Stop the system timer
-    ///
-    /// Sets both interval and duration to zero on the system side
-    pub fn stop(&self) -> Result<()> {
-        let val = unsafe { std::mem::zeroed::<libc::itimerspec>() };
-        libc_check(unsafe { libc::timer_settime(self.id, 0, &val, null_mut()) })
-    }
-}
-
-impl Drop for Timer {
-    fn drop(&mut self) {
-        libc_check(unsafe { libc::timer_delete(self.id) }).unwrap();
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
     use std::time::Duration;
 
     use super::*;
@@ -326,8 +316,8 @@ mod tests {
 
     #[ctor::ctor]
     fn prepare() {
-        // rust test framewrok uses threads, the main process may service messages
-        (SignalSet::default() + SIGALRM + SIGTERM).block();
+        // rust test framewrok uses threads, the main process may handle signals
+        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD).block();
     }
 
     #[test]
@@ -338,34 +328,65 @@ mod tests {
     }
 
     #[test]
+    #[serial(waitpid)]
     /// Some signals may not be blocked depending on the platform
     ///
     /// Ensure we can block and unblock a full signalset
     fn full_set() -> Result<()> {
-        let sigset = SignalSet::default();
+        let sigset = SignalSet::full();
         sigset.block()?;
         sigset.unblock()
     }
 
+    extern "C" fn blocked_sighandler(sig: libc::c_int) {
+        panic!("blocked signal caught: {}", sig);
+    }
+
     #[test]
-    fn timer() -> Result<()> {
-        let sigset = SignalSet::default() + SIGALRM;
+    #[serial(waitpid)]
+    fn pending() -> Result<()> {
+        let sigset = SignalSet::empty() + SIGALRM;
         sigset.block()?;
+        for sig in &sigset {
+            sig.set_handler(blocked_sighandler as usize)?;
+        }
+
+        unsafe {
+            libc::pthread_kill(libc::pthread_self(), libc::SIGALRM);
+        }
+        // Signal::kill(unsafe { libc::getpid() }, SIGALRM)?;
+        std::thread::sleep(Duration::from_millis(100));
+
+        assert!(SignalSet::pending().contains(SIGALRM));
+        assert_eq!(SIGALRM, sigset.wait()?);
+        assert!(!SignalSet::pending().contains(SIGALRM));
+        sigset.restore()
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn timer() -> Result<()> {
+        let sigset = SignalSet::empty() + SIGALRM;
+        sigset.block()?;
+
         let mut timer = Timer::default();
         timer
-            .set_duration(Duration::from_millis(250))
-            .set_interval(Duration::from_millis(250))
+            .set_duration(Duration::from_millis(25))
+            .set_interval(Duration::from_millis(25))
             .start()?;
+
+        std::thread::sleep(Duration::from_millis(30));
+        tracing::trace!(pending= ?SignalSet::pending());
+        assert!(SignalSet::pending().contains(SIGALRM));
         assert_eq!(SIGALRM, sigset.wait()?);
         assert_eq!(SIGALRM, sigset.wait()?);
 
-        assert_ne!(timer.remaining()?, Duration::ZERO);
         timer.stop()?;
-        assert_eq!(timer.duration(), Duration::from_millis(250));
-        assert_eq!(timer.interval(), Duration::from_millis(250));
-
-        assert_eq!(timer.remaining()?, Duration::ZERO);
-        Ok(())
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(!SignalSet::pending().contains(SIGALRM));
+        assert_eq!(timer.duration(), Duration::from_millis(25));
+        assert_eq!(timer.interval(), Duration::from_millis(25));
+        sigset.restore()
     }
 
     #[test]

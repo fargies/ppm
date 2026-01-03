@@ -174,6 +174,12 @@ impl Monitor {
 }
 
 extern "C" fn blocked_sighandler(sig: libc::c_int) {
+    tracing::error!(
+        sig,
+        pid = signal::getpid(),
+        tid = signal::gettid(),
+        "blocked signal caught"
+    );
     panic!("blocked signal caught: {}", sig);
 }
 
@@ -183,10 +189,16 @@ mod tests {
 
     use crate::{
         service::{Command, Status},
-        utils::signal::Signal,
+        utils::signal::{SIGALRM, SIGCHLD, SIGTERM, Signal},
     };
     use anyhow::Result;
     use serial_test::serial;
+
+    #[ctor::ctor]
+    fn prepare() {
+        // rust test framewrok uses threads, the main process may handle signals
+        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD).block();
+    }
 
     #[test]
     #[serial(waitpid)]
@@ -225,8 +237,7 @@ mod tests {
         assert_eq!(sigset.wait()?, signal::SIGCHLD);
         Monitor::default().on_sigchld();
 
-        sigset.restore()?;
-        Ok(())
+        sigset.restore()
     }
 
     #[test]
@@ -252,7 +263,7 @@ mod tests {
         std::thread::sleep(mon.interval * 2);
         assert_ne!(1, service.info().restarts);
 
-        Signal::kill(unsafe { libc::getpid() }, signal::SIGTERM)?;
+        Signal::kill(signal::getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
