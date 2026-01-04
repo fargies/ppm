@@ -60,7 +60,7 @@ mod tests {
         env: null\n";
         let cmd = Command::new("ls", ["-l", "-a"]);
 
-        assert_eq!(data, serde_yaml::to_string(&cmd).unwrap());
-        assert_eq!(cmd, serde_yaml::from_str::<Command>(data).unwrap());
+        assert_eq!(data, serde_yaml_ng::to_string(&cmd).unwrap());
+        assert_eq!(cmd, serde_yaml_ng::from_str::<Command>(data).unwrap());
     }
 }

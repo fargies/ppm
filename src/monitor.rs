@@ -38,7 +38,9 @@ mod sysinfo;
 use sysinfo::Sysinfo;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Monitor {
+    #[serde(with = "humantime_serde")]
     pub interval: std::time::Duration,
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip)]

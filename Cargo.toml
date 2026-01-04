@@ -13,22 +13,22 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.100"
+chrono = { version = "0.4.42", features = ["serde"] }
 clap = { version = "4.5.53", features = ["derive"] }
+colored = "3.0.0"
 dashmap = { version = "6.1.0", features = ["serde"] }
+dirs = "6.0.0"
+humantime = "2.3.0"
 humantime-serde = "1.1.1"
 libc = "0.2.178"
 serde = { version = "1.0.228", features = ["rc", "derive"] }
 serde_json = "1.0.148"
-serde_yaml = "0.9.34"
+serde_yaml_ng = "0.10.0"
 sysinfo = "0.37.2"
+tabled = { version = "0.20.0", features = ["ansi"] }
 tracing = "0.1.44"
 tracing-forest = { version = "0.3.0", features = ["ansi", "ansi_term", "chrono", "env-filter", "serde"] }
-tracing-subscriber = { version = "0.3.22", features = [
-    "env-filter",
-    "local-time",
-    "time",
-    "tracing",
-] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "local-time", "time", "tracing"] }
 
 [dev-dependencies]
 ctor = "0.6.3"

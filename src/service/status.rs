@@ -45,10 +45,10 @@ mod tests {
     fn serde() {
         assert_eq!(
             "Running\n",
-            serde_yaml::to_string(&Status::Running).unwrap()
+            serde_yaml_ng::to_string(&Status::Running).unwrap()
         );
         assert_eq!(
-            serde_yaml::from_str::<Status>("Running").unwrap(),
+            serde_yaml_ng::from_str::<Status>("Running").unwrap(),
             Status::Running
         );
     }
