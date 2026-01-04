@@ -21,9 +21,14 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::cell::Cell;
-
-use serde::{Serialize, Serializer};
+use anyhow::Result;
+use serde::{Serialize, Serializer, de::DeserializeOwned};
+use std::{
+    cell::Cell,
+    fs::File,
+    io::{Error, ErrorKind, Read, Write},
+    path::Path,
+};
 
 /// Serialize a seq iterator
 pub struct SeqWrapper<T>(Cell<Option<T>>);
@@ -67,7 +72,9 @@ where
 }
 
 /// Wrap a field in an object for serialization, keeping the object alive
-pub struct InnerRef<K, F, T>(pub K, pub F) where F: Fn(&K) -> &T;
+pub struct InnerRef<K, F, T>(pub K, pub F)
+where
+    F: Fn(&K) -> &T;
 
 impl<K, T, F> Serialize for InnerRef<K, F, T>
 where
@@ -76,5 +83,41 @@ where
 {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         self.1(&self.0).serialize(s)
+    }
+}
+
+pub trait LoadFromFile: Sized {
+    fn load_from_file(filename: &Path) -> Result<Self>;
+}
+
+impl<T> LoadFromFile for T
+where
+    T: DeserializeOwned + std::fmt::Debug,
+{
+    #[tracing::instrument(err)]
+    fn load_from_file(filename: &Path) -> Result<Self> {
+        let mut f = File::open(filename)?;
+        let mut buf = Vec::new();
+
+        f.read_to_end(&mut buf)?;
+        match serde_yaml_ng::from_slice(&buf) {
+            Ok(c) => Ok(c),
+            Err(e) => Err(Error::new(ErrorKind::InvalidInput, e.to_string()).into()),
+        }
+    }
+}
+
+pub trait SaveToFile: Sized {
+    fn save_to_file(&self, filename: &Path) -> Result<()>;
+}
+
+impl<T> SaveToFile for T
+where
+    T: Serialize,
+{
+    fn save_to_file(&self, filename: &Path) -> Result<()> {
+        let data = serde_yaml_ng::to_string(self).expect("failed to serialize");
+
+        Ok(File::create(filename)?.write_all(data.as_bytes())?)
     }
 }

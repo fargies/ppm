@@ -22,11 +22,13 @@
 */
 
 mod serde_utils;
-pub use serde_utils::{InnerRef, wrap_map_iterator};
+pub use serde_utils::{InnerRef, wrap_map_iterator, LoadFromFile, SaveToFile};
 
 pub mod signal;
 
 pub mod serializers;
+
+pub mod tabled;
 
 pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Duration) -> bool {
     unsafe {

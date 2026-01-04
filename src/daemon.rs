@@ -22,23 +22,44 @@
 */
 
 use anyhow::Result;
-use std::{net::SocketAddr, sync::Arc};
+use dirs::{config_local_dir, home_dir};
+use std::{env::current_dir, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use cmdline::DEFAULT_ADDR;
 use monitor::Monitor;
-// use tracing_forest::{ForestLayer};
-use tracing_subscriber::{fmt, EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    EnvFilter, Registry, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 pub mod cmdline;
 pub mod monitor;
 pub mod service;
 
 mod utils;
+use utils::LoadFromFile;
 use utils::signal;
+
+#[tracing::instrument(ret)]
+pub fn find_config_file() -> Option<PathBuf> {
+    let confdir_file = ["partner", "partner-pm.yml"].iter().collect::<PathBuf>();
+    config_local_dir()
+        .map(|f| f.join(confdir_file))
+        .filter(|f| f.exists())
+        .or_else(|| {
+            [home_dir(), current_dir().ok()]
+                .into_iter()
+                .filter_map(|f| f.map(|f| f.join(".partner-pm.yml")))
+                .find(|f| f.exists())
+        })
+}
 
 fn main() -> Result<()> {
     Registry::default()
-        .with(EnvFilter::from_default_env())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .with(fmt::layer())
         .init();
 
@@ -51,7 +72,11 @@ fn main() -> Result<()> {
     (signal::SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM).block()?;
 
     tracing::trace!("starting daemon");
-    let monitor = Arc::new(Monitor::default());
+    let monitor = Arc::new(
+        find_config_file()
+            .and_then(|filename| Monitor::load_from_file(&filename).ok())
+            .unwrap_or_default(),
+    );
     let server = cmdline::Server::new(Arc::clone(&monitor), addr)?;
 
     std::thread::spawn(move || server.run());

@@ -22,12 +22,18 @@
 */
 
 use anyhow::{Context, Result};
-use serde_json::Value;
+use serde::de::DeserializeOwned;
 use std::{
+    collections::HashMap,
     io::BufReader,
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
+use tabled::{
+    derive::display, grid::config::Borders, settings::{object::{Columns, Rows, Segment}, style::BorderColor, themes::Colorization, Alignment, Color, Rotate, Style, Theme, Width}, Table, Tabled
+};
+
+use crate::service::{self, ServiceId};
 
 use super::Action;
 
@@ -43,16 +49,59 @@ impl Client {
 }
 
 impl Client {
-    #[tracing::instrument(fields(client = ?self.0.local_addr()?, server = ?self.0.peer_addr()?, ?action), skip(self))]
-    pub fn run(&self, action: &Action) -> Result<Value> {
-        let mut reader = serde_json::Deserializer::from_reader(BufReader::new(&self.0))
-            .into_iter::<serde_json::Value>();
+    #[tracing::instrument(skip(self), ret(level = "TRACE"))]
+    /// Invoke a single action
+    pub fn invoke<R>(&self, action: &Action) -> Result<R>
+    where
+        R: DeserializeOwned + std::fmt::Debug,
+    {
+        let mut reader =
+            serde_json::Deserializer::from_reader(BufReader::new(&self.0)).into_iter::<R>();
         serde_json::to_writer(&self.0, &action)?;
 
         let reply = reader.next().unwrap().context("no reply from daemon")?;
-        tracing::trace!(reply = ?reply, "reply");
         Ok(reply)
     }
+
+    #[tracing::instrument(fields(client = ?self.0.local_addr()?, server = ?self.0.peer_addr()?, ?action), skip(self))]
+    /// Run a complete action, displaying result on the console
+    pub fn run(&self, action: &Action) -> Result<()> {
+        match action {
+            Action::Daemon => unimplemented!("must be handled before connecting"),
+            Action::List => unimplemented!("not available from cmdline"),
+            Action::Info => {
+                let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
+                let info: HashMap<ServiceId, service::Info> = self.invoke(&Action::Info)?;
+                let data = info.iter().map(|(id, info)| InfoRecord {
+                    id: *id,
+                    name: services_list.get(id),
+                    info: &info,
+                });
+                let mut table = Table::new(data);
+                self.display(table);
+            }
+        }
+        Ok(())
+    }
+
+    fn display(&self, mut table: Table) {
+        table
+        .with(Style::rounded().remove_horizontals())
+        // .modify(Rows::first(), Color::FG_CYAN)
+        // .modify(Segment::all(), BorderColor::filled(Color::FG_CYAN))
+        .with(Alignment::center());
+
+        println!("{}", table);
+    }
+}
+
+#[derive(Tabled)]
+struct InfoRecord<'a, 'b> {
+    id: ServiceId,
+    #[tabled(display("display::option", ""))]
+    name: Option<&'a String>,
+    #[tabled(inline)]
+    info: &'b service::Info,
 }
 
 #[cfg(test)]

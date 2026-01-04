@@ -22,28 +22,36 @@
 */
 
 use serde::{Deserialize, Serialize};
+use tabled::{Tabled, derive::display};
 use std::time::SystemTime;
+use crate::utils::tabled::TabledDisplay;
 
 use super::Status;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Tabled)]
 pub struct Info {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[tabled(display("display::option", ""))]
     pub pid: Option<libc::pid_t>,
     pub active: bool,
+    #[tabled(display("display::debug"))]
     pub status: Status,
     #[serde(
         with = "humantime_serde",
         default,
         skip_serializing_if = "Option::is_none"
     )]
+    #[tabled(display("TabledDisplay::to_string"))]
     pub start_time: Option<SystemTime>,
     #[serde(
         with = "humantime_serde",
         default,
         skip_serializing_if = "Option::is_none"
     )]
+    #[tabled(display("TabledDisplay::to_string"))]
     pub end_time: Option<SystemTime>,
+    #[serde(default)]
+    #[tabled(rename = "↺")]
     pub restarts: usize,
 }
 
@@ -64,6 +72,7 @@ impl Info {
     pub fn set_running(&mut self, pid: libc::pid_t) {
         match self.status {
             Status::Created | Status::Finished | Status::Crashed => {
+                tracing::info!("{:?} -> {:?}", self.status, Status::Running);
                 self.pid = Some(pid);
                 self.start_time = Some(std::time::SystemTime::now());
                 self.restarts += 1;
@@ -74,6 +83,7 @@ impl Info {
                 self.pid = Some(pid);
             }
             Status::Stopped => {
+                tracing::info!("{:?} -> {:?}", self.status, Status::Running);
                 self.pid = Some(pid);
                 self.status = Status::Running;
                 self.end_time = None;
@@ -84,6 +94,7 @@ impl Info {
     pub fn set_finished(&mut self) {
         match self.status {
             Status::Running | Status::Stopped => {
+                tracing::info!("{:?} -> {:?}", self.status, Status::Finished);
                 self.pid = None;
                 self.status = Status::Finished;
                 self.end_time = Some(std::time::SystemTime::now());
@@ -100,6 +111,7 @@ impl Info {
     pub fn set_stopped(&mut self) {
         match self.status {
             Status::Running => {
+                tracing::info!("{:?} -> {:?}", self.status, Status::Stopped);
                 self.status = Status::Stopped;
                 self.end_time = Some(std::time::SystemTime::now());
             }
@@ -115,6 +127,7 @@ impl Info {
     pub fn set_crashed(&mut self) {
         match self.status {
             Status::Running | Status::Stopped => {
+                tracing::warn!("{:?} -> {:?}", self.status, Status::Crashed);
                 self.pid = None;
                 self.status = Status::Crashed;
                 self.end_time = Some(std::time::SystemTime::now());
@@ -137,7 +150,7 @@ mod tests {
     fn serde() {
         let data = "active: true\nstatus: Created\nrestarts: 0\n";
         let info = Info::default();
-        assert_eq!(data, serde_yaml::to_string(&info).unwrap());
-        assert_eq!(serde_yaml::from_str::<Info>(data).unwrap(), info);
+        assert_eq!(data, serde_yaml_ng::to_string(&info).unwrap());
+        assert_eq!(serde_yaml_ng::from_str::<Info>(data).unwrap(), info);
     }
 }

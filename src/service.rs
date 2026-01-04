@@ -50,9 +50,9 @@ pub struct Service {
     pub id: ServiceId,
     pub name: String,
     pub command: Command,
-    #[serde(rename = "info")]
+    #[serde(rename = "info", default)]
     _info: Mutex<Arc<Info>>,
-    #[serde(rename = "stats")]
+    #[serde(rename = "stats", default)]
     _stats: Mutex<Arc<Stats>>,
 }
 
@@ -200,9 +200,9 @@ mod tests {
     #[test]
     fn serde() {
         let srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
-        let data = serde_yaml::to_string(&srv).unwrap();
+        let data = serde_yaml_ng::to_string(&srv).unwrap();
         assert_eq!(
-            serde_yaml::from_str::<Service>(&data).unwrap().command,
+            serde_yaml_ng::from_str::<Service>(&data).unwrap().command,
             srv.command
         );
     }

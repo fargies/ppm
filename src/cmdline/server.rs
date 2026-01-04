@@ -79,6 +79,8 @@ impl Server {
     #[tracing::instrument(skip(self))]
     pub fn run(&self) {
         loop {
+            let _span = tracing::info_span!(parent: None, "server").entered();
+
             match self.socket.accept() {
                 Ok(stream) => {
                     let (token, count) = ServerToken::new(&self.connections);

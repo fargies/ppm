@@ -40,6 +40,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     match args.action {
+        // `exec` the daemon process
         Action::Daemon => Err(process::Command::new(
             current_exe()?
                 .parent()
@@ -57,13 +58,12 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tracing_forest::ForestLayer;
 
     #[ctor::ctor]
     fn log_init() {
         Registry::default()
             .with(EnvFilter::from_default_env())
-            .with(ForestLayer::default())
+            .with(tracing_forest::ForestLayer::default())
             .try_init();
     }
 }
