@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    service::{Info, Service, ServiceId, Status},
+    service::{self, Info, Service, ServiceId, Status},
     utils::{
         self,
         signal::{self, SignalSet, Timer},
@@ -42,6 +42,7 @@ use sysinfo::Sysinfo;
 pub struct Monitor {
     #[serde(with = "humantime_serde")]
     pub interval: std::time::Duration,
+    #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
@@ -62,10 +63,14 @@ impl Monitor {
     fn on_sigchld(&self) {
         while let Some((pid, status)) = utils::waitpid(-1) {
             if libc::WIFSIGNALED(status) {
-                let signal = libc::WTERMSIG(status);
-                tracing::debug!(signal = ?signal::Signal(signal), pid, "process killed");
+                let signal = signal::Signal(libc::WTERMSIG(status));
+                tracing::debug!(?signal, pid, "process killed");
                 if let Some(service) = self.find_by_pid(pid) {
-                    service.set_crashed();
+                    if signal == signal::SIGTERM {
+                        service.set_finished();
+                    } else {
+                        service.set_crashed();
+                    }
                 }
             } else if libc::WIFEXITED(status) {
                 let code = libc::WEXITSTATUS(status);
@@ -165,6 +170,17 @@ impl Monitor {
             .iter()
             .find(|x| x.info().pid.is_some_and(|x| x == pid))
             .map(|x| Arc::clone(&x))
+    }
+
+    pub fn find_by_name(&self, name: &String) -> Option<Arc<Service>> {
+        self.services
+            .iter()
+            .find(|x| &x.name == name)
+            .map(|x| Arc::clone(&x))
+    }
+
+    pub fn get(&self, id: ServiceId) -> Option<Arc<Service>> {
+        self.services.get(&id).map(|x| Arc::clone(&x))
     }
 
     pub fn insert(&self, service: Service) -> Arc<Service> {

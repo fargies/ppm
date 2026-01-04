@@ -17,10 +17,28 @@
 **    misrepresented as being the original software.
 ** 3. This notice may not be removed or altered from any source distribution.
 **
-** Created on: 2026-01-01T15:15:33
+** Created on: 2026-01-04T08:06:28
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-pub mod instant;
+use std::sync::{
+    LazyLock,
+    atomic::{AtomicBool, Ordering},
+};
 
-pub mod service_dashmap;
+/// Lazy loaded atomic boolean value
+pub struct LazyBool(LazyLock<AtomicBool>);
+
+impl LazyBool {
+    pub const fn new(fun: fn() -> AtomicBool) -> Self {
+        Self(LazyLock::<AtomicBool>::new(fun))
+    }
+
+    pub fn get(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self, value: bool) {
+        self.0.store(value, Ordering::Relaxed)
+    }
+}

@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::{
     io::BufReader,
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
@@ -33,10 +33,11 @@ use std::{
 
 use crate::{
     monitor::Monitor,
+    service::{Service, ServiceId},
     utils::{InnerRef, wrap_map_iterator},
 };
 
-use super::Action;
+use super::{Action, ActionResult};
 
 const MAX_CONNECTIONS: usize = 16;
 
@@ -92,8 +93,11 @@ impl Server {
                     } else {
                         let monitor = Arc::clone(&self.monitor);
                         std::thread::spawn(move || {
-                            if let Err(error) = Server::handle(stream.0, monitor) {
-                                tracing::error!(client = ?stream.1, ?error, "client request failed");
+                            if let Err(error) = Server::handle(&stream.0, monitor) {
+                                let _ = serde_json::to_writer(
+                                    &stream.0,
+                                    &ActionResult::<()>::from(error),
+                                );
                             }
                             drop(token);
                         });
@@ -107,17 +111,25 @@ impl Server {
         }
     }
 
-    #[tracing::instrument(fields(client = ?stream.peer_addr()?), skip(stream, monitor))]
-    fn handle(stream: TcpStream, monitor: Arc<Monitor>) -> Result<()> {
+    fn find_service(monitor: &Monitor, service: &String) -> Option<Arc<Service>> {
+        service
+            .parse::<ServiceId>()
+            .ok()
+            .and_then(|id| monitor.get(id))
+            .or_else(|| monitor.find_by_name(service))
+    }
+
+    #[tracing::instrument(fields(client = ?stream.peer_addr()?), skip(stream, monitor), err)]
+    fn handle(stream: &TcpStream, monitor: Arc<Monitor>) -> Result<()> {
         let mut reader =
-            serde_json::Deserializer::from_reader(BufReader::new(&stream)).into_iter::<Action>();
+            serde_json::Deserializer::from_reader(BufReader::new(stream)).into_iter::<Action>();
 
         while let Some(Ok(action)) = reader.next() {
             tracing::trace!(?action, "action requested");
             match action {
                 Action::Daemon => todo!(),
                 Action::List => serde_json::to_writer(
-                    &stream,
+                    stream,
                     &wrap_map_iterator(
                         monitor
                             .services
@@ -126,9 +138,25 @@ impl Server {
                     ),
                 )?,
                 Action::Info => serde_json::to_writer(
-                    &stream,
+                    stream,
                     &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
                 )?,
+                Action::Restart { service } => {
+                    if let Some(service) = Server::find_service(&monitor, &service) {
+                        service.restart();
+                        serde_json::to_writer(stream, &ActionResult::Ok(true))?;
+                    } else {
+                        return Err(anyhow!("no such service \"{service}\""));
+                    }
+                }
+                Action::Stop { service } => {
+                    if let Some(service) = Server::find_service(&monitor, &service) {
+                        service.stop();
+                        serde_json::to_writer(stream, &ActionResult::Ok(true))?;
+                    } else {
+                        return Err(anyhow!("no such service \"{service}\""));
+                    }
+                }
             }
         }
         Ok(())

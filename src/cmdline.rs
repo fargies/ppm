@@ -21,10 +21,13 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    marker::PhantomData,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+};
 
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Visitor, ser::SerializeStruct};
 
 mod client;
 pub use client::Client;
@@ -41,13 +44,106 @@ pub enum Action {
     /// Start the daemon
     #[command(skip)]
     List,
-    /// Dump info
+    /// Dump info (aliases: list)
+    #[clap(alias = "list")]
     Info,
+    /// Restart the given service (aliases: start)
+    #[clap(alias = "start")]
+    Restart { service: String },
+    /// Stop (terminate) the given service (aliases: terminate)
+    #[clap(alias = "terminate")]
+    Stop { service: String },
 }
 
 impl Default for Action {
     fn default() -> Self {
         Action::Daemon {}
+    }
+}
+
+#[derive(Debug)]
+pub enum ActionResult<T> {
+    Ok(T),
+    Err(String),
+}
+
+impl<T> Serialize for ActionResult<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ActionResult::Ok(result) => {
+                let mut ret = serializer.serialize_struct("result", 1)?;
+                ret.serialize_field("result", result)?;
+                ret.end()
+            }
+            ActionResult::Err(msg) => {
+                let mut ret = serializer.serialize_struct("error", 1)?;
+                ret.serialize_field("error", msg)?;
+                ret.end()
+            }
+        }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for ActionResult<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ActionResultVisitor<T>(PhantomData<T>);
+        impl<'de, T> Visitor<'de> for ActionResultVisitor<T>
+        where
+            T: Deserialize<'de>,
+        {
+            type Value = ActionResult<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    "expecting a `{ \"result\": true }` or `{ \"error\": \"msg\" } object",
+                )
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                use serde::de::Error;
+
+                while let Some(k) = map.next_key::<String>()? {
+                    if k == "result" {
+                        return Ok(ActionResult::Ok(map.next_value::<T>()?));
+                    } else if k == "error" {
+                        return Ok(ActionResult::Err(map.next_value::<String>()?));
+                    }
+                }
+                Err(Error::custom("no \"result\" or \"error\" fields found"))
+            }
+        }
+
+        deserializer.deserialize_map(ActionResultVisitor(PhantomData))
+    }
+}
+
+impl<T> From<anyhow::Result<T>> for ActionResult<T> {
+    fn from(value: anyhow::Result<T>) -> Self {
+        match value {
+            Ok(ret) => ActionResult::Ok(ret),
+            Err(err) => ActionResult::Err(err.to_string()),
+        }
+    }
+}
+
+impl<T> From<anyhow::Error> for ActionResult<T> {
+    fn from(value: anyhow::Error) -> Self {
+        ActionResult::Err(value.to_string())
     }
 }
 
@@ -58,4 +154,29 @@ pub struct Args {
     pub action: Action,
     #[arg(long, global = true, default_value_t = DEFAULT_ADDR)]
     pub addr: SocketAddr,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::{Result, anyhow};
+
+    #[test]
+    fn action_result() -> Result<()> {
+        assert_eq!(
+            "{\"result\":true}",
+            serde_json::to_string(&ActionResult::Ok(true))?.as_str()
+        );
+
+        assert_eq!(
+            "{\"error\":\"critical failure\"}",
+            serde_json::to_string(&ActionResult::<()>::Err("critical failure".into()))?.as_str()
+        );
+
+        assert_eq!(
+            "{\"error\":\"critical failure\"}",
+            serde_json::to_string(&ActionResult::<()>::from(anyhow!("critical failure")))?.as_str()
+        );
+        Ok(())
+    }
 }
