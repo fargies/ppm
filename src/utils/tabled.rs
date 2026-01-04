@@ -21,13 +21,13 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{
-    fmt::Debug,
-    time::{Duration, SystemTime},
-};
+use colored::Colorize;
+use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Local, SecondsFormat};
-use humantime::{format_duration, format_rfc3339, format_rfc3339_seconds};
+use humantime::format_duration;
+
+use crate::utils::IS_OUT_COLORED;
 
 pub trait TabledDisplay {
     fn to_string(&self) -> String;
@@ -41,20 +41,21 @@ impl TabledDisplay for Duration {
 
 impl TabledDisplay for SystemTime {
     fn to_string(&self) -> String {
-        for (key, value) in std::env::vars() {
-            println!("{key}: {value}");
-        }
-        tracing::trace!(columns=?std::env::var("COLUMNS"));
-        if std::env::var("COLUMNS").ok().and_then(|val| val.parse().ok()).unwrap_or(80) > 125 {
-            let mut elapsed = Duration::from_secs(self.elapsed().unwrap().as_secs());
-            format!("{} ({})", DateTime::<Local>::from(*self).to_rfc3339_opts(SecondsFormat::Secs, true),
-            elapsed.to_string())
-        }
-        else {
-            DateTime::<Local>::from(*self).to_rfc3339_opts(SecondsFormat::Secs, true)
-        }
+        DateTime::<Local>::from(*self).to_rfc3339_opts(SecondsFormat::Secs, true)
+    }
+}
 
-
+impl TabledDisplay for bool {
+    fn to_string(&self) -> String {
+        if IS_OUT_COLORED.get() {
+            if *self {
+                String::from("\u{2714}").green().to_string()
+            } else {
+                String::from("\u{2718}").red().to_string()
+            }
+        } else {
+            ToString::to_string(self)
+        }
     }
 }
 
@@ -63,7 +64,6 @@ where
     T: TabledDisplay,
 {
     fn to_string(&self) -> String {
-        self.as_ref()
-            .map_or_else(|| String::new(), |t| t.to_string())
+        self.as_ref().map_or_else(String::new, |t| t.to_string())
     }
 }

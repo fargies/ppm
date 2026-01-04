@@ -21,13 +21,18 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils;
-use crate::utils::signal::SignalSet;
+use crate::utils::{
+    self,
+    signal::{self, Signal, SignalSet},
+};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::os::unix::process::CommandExt;
 use std::process;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::{os::unix::process::CommandExt, time::Duration};
 
 mod command;
 pub use command::Command;
@@ -42,10 +47,12 @@ mod status;
 pub use status::Status;
 
 static S_ID: AtomicUsize = AtomicUsize::new(0);
+pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Service {
     pub id: ServiceId,
     pub name: String,
@@ -65,9 +72,23 @@ impl Service {
             id: S_ID.fetch_add(1, Ordering::Relaxed),
             name: name.to_string(),
             command,
-            _info: Mutex::new(Arc::new(Info::default())),
-            _stats: Mutex::new(Arc::new(Stats::default())),
+            _info: Default::default(),
+            _stats: Default::default(),
         }
+    }
+
+    pub fn validate(mut self) -> Result<Self> {
+        if self.id == SERVICE_ID_INVALID {
+            self.id = S_ID.fetch_add(1, Ordering::Relaxed);
+        } else {
+            S_ID.fetch_max(self.id + 1, Ordering::Relaxed);
+        }
+        if self.command.path.is_empty() {
+            return Err(anyhow!("invalid command, missing `path`"));
+        } else if self.name.is_empty() {
+            return Err(anyhow!("service `name` missing"));
+        }
+        Ok(self)
     }
 
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
@@ -89,7 +110,7 @@ impl Service {
                 SignalSet::full()
                     .restore()
                     .expect("failed to restore default signal handlers");
-                let mut cmd = process::Command::new(self.command.command.as_str());
+                let mut cmd = process::Command::new(self.command.path.as_str());
                 cmd.args(&self.command.args)
                     .stdin(process::Stdio::null())
                     .stdout(process::Stdio::inherit())
@@ -115,11 +136,12 @@ impl Service {
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn stop(&self) {
         if let Some(pid) = self.info().pid {
+            tracing::debug!(pid, "trying to stop");
             if utils::waitpid(pid).is_some() {
                 tracing::info!(pid = pid, "process (already) terminated");
-            } else if utils::terminate(pid, libc::SIGTERM, std::time::Duration::from_secs(5)) {
+            } else if self.terminate(signal::SIGTERM, &Duration::from_secs(5)) {
                 tracing::info!(pid = pid, "process terminated");
-            } else if utils::terminate(pid, libc::SIGKILL, std::time::Duration::from_secs(10)) {
+            } else if self.terminate(signal::SIGKILL, &Duration::from_secs(10)) {
                 tracing::info!(pid = pid, "process killed");
             } else {
                 tracing::error!("failed to kill process");
@@ -129,6 +151,26 @@ impl Service {
             info.active = false;
             info.set_finished();
         }
+    }
+
+    /// send a termination signal, wait for process end
+    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    fn terminate(&self, signal: Signal, timeout: &Duration) -> bool {
+        if let Some(pid) = self.info().pid {
+            let _ = Signal::kill(pid, signal);
+
+            let start = std::time::Instant::now();
+            loop {
+                if utils::waitpid(pid).is_some() || self.info().pid.is_none() {
+                    return true;
+                } else if &start.elapsed() < timeout {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                } else {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
@@ -164,6 +206,18 @@ impl Service {
     }
 }
 
+impl Default for Service {
+    fn default() -> Self {
+        Self {
+            id: SERVICE_ID_INVALID,
+            name: Default::default(),
+            command: Default::default(),
+            _info: Default::default(),
+            _stats: Default::default(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,7 +232,7 @@ mod tests {
         assert_eq!(srv.info().status, Status::Running);
 
         // wait for command to terminate
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(100));
         srv.stop();
         assert_eq!(srv.info().pid, None);
         assert_eq!(srv.info().status, Status::Finished);

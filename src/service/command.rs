@@ -25,9 +25,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Command {
-    pub command: String,
+    pub path: String,
     pub args: Vec<String>,
     pub env: Option<HashMap<String, String>>,
 }
@@ -40,7 +41,7 @@ impl Command {
         K: ToString,
     {
         Self {
-            command: command.to_string(),
+            path: command.to_string(),
             args: args.into_iter().map(|x| x.to_string()).collect(),
             env: None,
         }
@@ -53,7 +54,7 @@ mod tests {
 
     #[test]
     fn serde() {
-        let data = "command: ls\n\
+        let data = "path: ls\n\
         args:\n\
         - -l\n\
         - -a\n\

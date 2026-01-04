@@ -84,7 +84,7 @@ impl Signal {
     #[tracing::instrument(level = "TRACE", err)]
     pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> Result<()>
     where
-    S: Into<Signal> + Debug
+        S: Into<Signal> + Debug,
     {
         unsafe { libc_check(libc::pthread_kill(tid, *signal.into())) }
     }

@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::de::DeserializeOwned;
 use std::{
     collections::HashMap,
@@ -30,17 +30,27 @@ use std::{
     time::Duration,
 };
 use tabled::{
-    derive::display, grid::config::Borders, settings::{object::{Columns, Rows, Segment}, style::BorderColor, themes::Colorization, Alignment, Color, Rotate, Style, Theme, Width}, Table, Tabled
+    Table, Tabled,
+    derive::display,
+    settings::{
+        Alignment, Color, Style,
+        object::{Rows, Segment},
+        style::BorderColor,
+    },
 };
 
-use crate::service::{self, ServiceId};
+use crate::{
+    service::{self, ServiceId},
+    utils,
+};
 
-use super::Action;
+use super::{Action, ActionResult};
 
 #[derive(Debug)]
 pub struct Client(TcpStream);
 
 impl Client {
+    #[tracing::instrument(level = "TRACE", skip(addr), ret, err)]
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<Client> {
         let stream = TcpStream::connect(addr).context("failed to connect daemon")?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -49,7 +59,7 @@ impl Client {
 }
 
 impl Client {
-    #[tracing::instrument(skip(self), ret(level = "TRACE"))]
+    #[tracing::instrument(skip(self), ret(level = "TRACE"), err)]
     /// Invoke a single action
     pub fn invoke<R>(&self, action: &Action) -> Result<R>
     where
@@ -58,6 +68,7 @@ impl Client {
         let mut reader =
             serde_json::Deserializer::from_reader(BufReader::new(&self.0)).into_iter::<R>();
         serde_json::to_writer(&self.0, &action)?;
+        tracing::trace!("action sent");
 
         let reply = reader.next().unwrap().context("no reply from daemon")?;
         Ok(reply)
@@ -72,13 +83,34 @@ impl Client {
             Action::Info => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
                 let info: HashMap<ServiceId, service::Info> = self.invoke(&Action::Info)?;
-                let data = info.iter().map(|(id, info)| InfoRecord {
-                    id: *id,
-                    name: services_list.get(id),
-                    info: &info,
-                });
-                let mut table = Table::new(data);
-                self.display(table);
+                let mut keys: Vec<ServiceId> = info.keys().copied().collect();
+                keys.sort();
+
+                let data = keys
+                    .iter()
+                    .filter_map(|id| info.get(id).map(|x| (id, x)))
+                    .map(|(id, info)| InfoRecord {
+                        id: *id,
+                        name: services_list.get(id),
+                        info,
+                    });
+                self.display(Table::new(data));
+            }
+            action @ Action::Restart { .. } => {
+                self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
+                let ret: ActionResult<bool> = self.invoke(action)?;
+                return match ret {
+                    ActionResult::Ok(_) => Ok(()),
+                    ActionResult::Err(msg) => Err(anyhow!(msg)),
+                };
+            }
+            action @ Action::Stop { .. } => {
+                self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
+                let ret: ActionResult<bool> = self.invoke(action)?;
+                return match ret {
+                    ActionResult::Ok(_) => Ok(()),
+                    ActionResult::Err(msg) => Err(anyhow!(msg)),
+                };
             }
         }
         Ok(())
@@ -86,10 +118,14 @@ impl Client {
 
     fn display(&self, mut table: Table) {
         table
-        .with(Style::rounded().remove_horizontals())
-        // .modify(Rows::first(), Color::FG_CYAN)
-        // .modify(Segment::all(), BorderColor::filled(Color::FG_CYAN))
-        .with(Alignment::center());
+            .with(Style::rounded().remove_horizontals())
+            .with(Alignment::center());
+
+        if utils::IS_OUT_COLORED.get() {
+            table
+                .modify(Rows::first(), Color::FG_BRIGHT_BLUE)
+                .modify(Segment::all(), BorderColor::filled(Color::FG_BRIGHT_BLUE));
+        }
 
         println!("{}", table);
     }

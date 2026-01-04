@@ -43,6 +43,7 @@ where
     }
 }
 
+/// Convenience function to serialize a seq iterator
 pub fn wrap_iterator<I, P>(i: I) -> SeqWrapper<I>
 where
     I: IntoIterator<Item = P>,
@@ -64,6 +65,7 @@ where
     }
 }
 
+/// Convenience function to serialize a map iterator
 pub fn wrap_map_iterator<I, P>(i: I) -> MapWrapper<I>
 where
     I: IntoIterator<Item = P>,

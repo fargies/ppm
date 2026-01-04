@@ -21,8 +21,10 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use std::{io::IsTerminal, sync::atomic::AtomicBool};
+
 mod serde_utils;
-pub use serde_utils::{InnerRef, wrap_map_iterator, LoadFromFile, SaveToFile};
+pub use serde_utils::{InnerRef, LoadFromFile, SaveToFile, wrap_map_iterator};
 
 pub mod signal;
 
@@ -30,6 +32,16 @@ pub mod serializers;
 
 pub mod tabled;
 
+mod lazy_bool;
+pub use lazy_bool::LazyBool;
+
+pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
+    AtomicBool::new(
+        std::io::stdout().is_terminal() && !std::env::var("NO_COLOR").is_ok_and(|v| !v.is_empty()),
+    )
+});
+
+#[tracing::instrument(level = "TRACE", ret)]
 pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Duration) -> bool {
     unsafe {
         libc::kill(pid, signal);
