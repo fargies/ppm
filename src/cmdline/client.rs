@@ -40,7 +40,7 @@ use tabled::{
 };
 
 use crate::{
-    service::{self, ServiceId},
+    service::{self, Command, Service, ServiceId},
     utils,
 };
 
@@ -78,7 +78,7 @@ impl Client {
     /// Run a complete action, displaying result on the console
     pub fn run(&self, action: &Action) -> Result<()> {
         match action {
-            Action::Daemon => unimplemented!("must be handled before connecting"),
+            Action::Daemon { .. } => unimplemented!("must be handled before connecting"),
             Action::List => unimplemented!("not available from cmdline"),
             Action::Info => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
@@ -95,25 +95,21 @@ impl Client {
                         info,
                     });
                 self.display(Table::new(data));
+                Ok(())
             }
-            action @ Action::Restart { .. } => {
+            action @ (Action::Stop { .. } | Action::Restart { .. } | Action::Remove { .. }) => {
                 self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
-                let ret: ActionResult<bool> = self.invoke(action)?;
-                return match ret {
-                    ActionResult::Ok(_) => Ok(()),
-                    ActionResult::Err(msg) => Err(anyhow!(msg)),
-                };
+                self.invoke::<ActionResult<()>>(&action)?.into()
             }
-            action @ Action::Stop { .. } => {
-                self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
-                let ret: ActionResult<bool> = self.invoke(action)?;
-                return match ret {
-                    ActionResult::Ok(_) => Ok(()),
-                    ActionResult::Err(msg) => Err(anyhow!(msg)),
-                };
-            }
+            Action::ShowConfiguration => match self.invoke::<ActionResult<String>>(&action)? {
+                ActionResult::Ok(config) => {
+                    print!("{config}");
+                    Ok(())
+                }
+                action => action.map(|_| ()).into(),
+            },
+            action => self.invoke::<ActionResult<()>>(&action)?.into(),
         }
-        Ok(())
     }
 
     fn display(&self, mut table: Table) {

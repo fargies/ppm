@@ -54,13 +54,18 @@ pub type ServiceId = usize;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Service {
+    #[serde(skip_serializing_if="is_invalid_id")]
     pub id: ServiceId,
     pub name: String,
     pub command: Command,
-    #[serde(rename = "info", default)]
+    #[serde(skip)]
     _info: Mutex<Arc<Info>>,
-    #[serde(rename = "stats", default)]
+    #[serde(skip)]
     _stats: Mutex<Arc<Stats>>,
+}
+
+fn is_invalid_id(id: &ServiceId) -> bool {
+    id == &SERVICE_ID_INVALID
 }
 
 impl Service {
@@ -122,6 +127,7 @@ impl Service {
                 };
                 let err = cmd.exec();
                 tracing::error!("failed to spawn process: {}", err);
+                std::process::exit(-1);
             }
             pid => {
                 let mut guard = self._info.lock().unwrap();

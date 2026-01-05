@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    service::{self, Info, Service, ServiceId, Status},
+    service::{Info, Service, ServiceId, Status},
     utils::{
         self,
         signal::{self, SignalSet, Timer},
@@ -275,7 +275,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert_eq!(1, service.info().restarts);
         match service.info().pid {
-            Some(pid) => Signal::kill(pid, signal::SIGTERM)?,
+            Some(pid) => Signal::kill(pid, signal::SIGKILL)?,
             None => panic!("process not started"),
         };
         std::thread::sleep(mon.interval * 2);
@@ -300,7 +300,7 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(std::time::Duration::from_millis(300));
-        Signal::kill(unsafe { libc::getpid() }, signal::SIGTERM)?;
+        Signal::kill(signal::getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
 
@@ -333,11 +333,9 @@ mod tests {
         Signal::kill(info.pid.unwrap(), signal::Signal(libc::SIGCONT))?;
         std::thread::sleep(mon.interval * 2);
 
-        // FIXME fix this
-
         assert_eq!(service.info().status, Status::Running);
 
-        Signal::kill(unsafe { libc::getpid() }, signal::SIGTERM)?;
+        Signal::kill(signal::getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
         Ok(())

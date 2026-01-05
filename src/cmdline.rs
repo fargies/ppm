@@ -40,7 +40,11 @@ pub const DEFAULT_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(12
 #[derive(Serialize, Deserialize, Subcommand, Debug)]
 pub enum Action {
     /// Start the daemon
-    Daemon,
+    Daemon {
+        /// Configuration file to load
+        #[clap(long)]
+        config: Option<String>,
+    },
     /// Start the daemon
     #[command(skip)]
     List,
@@ -53,11 +57,43 @@ pub enum Action {
     /// Stop (terminate) the given service (aliases: terminate)
     #[clap(alias = "terminate")]
     Stop { service: String },
+    /// Dump running configuration (aliases: show-config, config)
+    #[clap(aliases=["show-config", "config"])]
+    ShowConfiguration,
+    /// Add a new service (aliases: add-service)
+    #[clap(aliases=["add-service"])]
+    Add {
+        /// Service name
+        #[clap(long, short)]
+        name: String,
+        /// Environment variables
+        #[clap(long, short, value_name = "NAME=VALUE", value_parser = parse_key_val::<String, String>)]
+        env: Vec<(String, String)>,
+        /// Command to run
+        #[clap(last=true)]
+        command: Vec<String>
+    },
+    /// Stop and remove a service (aliases: rm, remove-service)
+    #[clap(aliases=["rm", "remove-service"])]
+    Remove { service: String }
+}
+
+fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn std::error::Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: std::error::Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
 }
 
 impl Default for Action {
     fn default() -> Self {
-        Action::Daemon {}
+        Action::Daemon { config: None }
     }
 }
 
@@ -65,6 +101,18 @@ impl Default for Action {
 pub enum ActionResult<T> {
     Ok(T),
     Err(String),
+}
+
+impl<T> ActionResult<T> {
+    pub fn map<F, R>(self, f: F) -> ActionResult<R>
+    where
+        F: FnOnce(T) -> R,
+    {
+        match self {
+            ActionResult::Ok(value) => ActionResult::Ok(f(value)),
+            ActionResult::Err(err) => ActionResult::Err(err),
+        }
+    }
 }
 
 impl<T> Serialize for ActionResult<T>
@@ -144,6 +192,15 @@ impl<T> From<anyhow::Result<T>> for ActionResult<T> {
 impl<T> From<anyhow::Error> for ActionResult<T> {
     fn from(value: anyhow::Error) -> Self {
         ActionResult::Err(value.to_string())
+    }
+}
+
+impl<T> From<ActionResult<T>> for anyhow::Result<T> {
+    fn from(value: ActionResult<T>) -> Self {
+        match value {
+            ActionResult::Ok(x) => Ok(x),
+            ActionResult::Err(msg) => Err(anyhow::anyhow!(msg)),
+        }
     }
 }
 

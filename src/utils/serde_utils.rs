@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Serialize, Serializer, de::DeserializeOwned};
 use std::{
     cell::Cell,
@@ -98,7 +98,7 @@ where
 {
     #[tracing::instrument(err)]
     fn load_from_file(filename: &Path) -> Result<Self> {
-        let mut f = File::open(filename)?;
+        let mut f = File::open(filename).with_context(|| format!("failed to load {filename:?}"))?;
         let mut buf = Vec::new();
 
         f.read_to_end(&mut buf)?;
