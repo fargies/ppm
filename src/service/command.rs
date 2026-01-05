@@ -29,19 +29,21 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Command {
     pub path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
 }
 
 impl Command {
-    pub fn new<T, I, K>(command: T, args: I) -> Self
+    pub fn new<T, I, K>(path: T, args: I) -> Self
     where
         T: ToString,
         I: IntoIterator<Item = K>,
         K: ToString,
     {
         Self {
-            path: command.to_string(),
+            path: path.to_string(),
             args: args.into_iter().map(|x| x.to_string()).collect(),
             env: None,
         }

@@ -23,7 +23,12 @@
 
 use anyhow::Result;
 use dirs::{config_local_dir, home_dir};
-use std::{env::current_dir, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    env::{self, current_dir},
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use cmdline::DEFAULT_ADDR;
 use monitor::Monitor;
@@ -41,16 +46,24 @@ use utils::signal;
 
 #[tracing::instrument(ret)]
 pub fn find_config_file() -> Option<PathBuf> {
-    let confdir_file = ["partner", "partner-pm.yml"].iter().collect::<PathBuf>();
-    config_local_dir()
-        .map(|f| f.join(confdir_file))
+    if let Some(file) = env::var("PPM_CONFIG")
+        .ok()
+        .filter(|file| !file.is_empty())
+        .map(PathBuf::from)
+    {
+        // we did not check that it exists on purpose, when set it *must* be used
+        Some(file)
+    } else if let Some(file) = config_local_dir()
+        .map(|f| f.join(["partner", "partner-pm.yml"].iter().collect::<PathBuf>()))
         .filter(|f| f.exists())
-        .or_else(|| {
-            [home_dir(), current_dir().ok()]
-                .into_iter()
-                .filter_map(|f| f.map(|f| f.join(".partner-pm.yml")))
-                .find(|f| f.exists())
-        })
+    {
+        Some(file)
+    } else {
+        [home_dir(), current_dir().ok()]
+            .into_iter()
+            .filter_map(|f| f.map(|f| f.join(".partner-pm.yml")))
+            .find(|f| f.exists())
+    }
 }
 
 fn main() -> Result<()> {
@@ -71,12 +84,13 @@ fn main() -> Result<()> {
     // block signal before spawning threads to apply mask to all threads
     (signal::SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM).block()?;
 
-    tracing::trace!("starting daemon");
-    let monitor = Arc::new(
-        find_config_file()
-            .and_then(|filename| Monitor::load_from_file(&filename).ok())
-            .unwrap_or_default(),
-    );
+    tracing::info!("starting daemon");
+    let monitor = Arc::new(if let Some(file) = find_config_file() {
+        Monitor::load_from_file(&file)?
+    } else {
+        Monitor::default()
+    });
+
     let server = cmdline::Server::new(Arc::clone(&monitor), addr)?;
 
     std::thread::spawn(move || server.run());

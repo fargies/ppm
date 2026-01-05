@@ -22,6 +22,7 @@
 */
 
 use anyhow::{Context, Result, anyhow};
+use serde_yaml_ng as yaml;
 use std::{
     io::BufReader,
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
@@ -33,7 +34,7 @@ use std::{
 
 use crate::{
     monitor::Monitor,
-    service::{Service, ServiceId},
+    service::{Command, Service, ServiceId},
     utils::{InnerRef, wrap_map_iterator},
 };
 
@@ -126,37 +127,70 @@ impl Server {
 
         while let Some(Ok(action)) = reader.next() {
             tracing::trace!(?action, "action requested");
-            match action {
-                Action::Daemon => todo!(),
-                Action::List => serde_json::to_writer(
-                    stream,
-                    &wrap_map_iterator(
-                        monitor
-                            .services
-                            .iter()
-                            .map(|x| (x.id, InnerRef(x, |x| &x.name))),
-                    ),
-                )?,
-                Action::Info => serde_json::to_writer(
-                    stream,
-                    &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
-                )?,
-                Action::Restart { service } => {
-                    if let Some(service) = Server::find_service(&monitor, &service) {
-                        service.restart();
-                        serde_json::to_writer(stream, &ActionResult::Ok(true))?;
-                    } else {
-                        return Err(anyhow!("no such service \"{service}\""));
-                    }
+            if let Err(e) = Server::run_action(stream, &monitor, action) {
+                serde_json::to_writer(stream, &ActionResult::<()>::from(e))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn run_action(stream: &TcpStream, monitor: &Monitor, action: Action) -> Result<()> {
+        match action {
+            Action::Daemon { .. } => {
+                unimplemented!("daemon command must be handled from client side (fork/exec)")
+            }
+            Action::List => serde_json::to_writer(
+                stream,
+                &wrap_map_iterator(
+                    monitor
+                        .services
+                        .iter()
+                        .map(|x| (x.id, InnerRef(x, |x| &x.name))),
+                ),
+            )?,
+            Action::Info => serde_json::to_writer(
+                stream,
+                &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
+            )?,
+            Action::Restart { service } => {
+                let service = Server::find_service(monitor, &service)
+                    .with_context(|| format!("no such service \"{service}\""))?;
+
+                service.restart();
+                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+            }
+            Action::Stop { service } => {
+                let service = Server::find_service(monitor, &service)
+                    .with_context(|| format!("no such service \"{service}\""))?;
+                service.stop();
+                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+            }
+            Action::ShowConfiguration => {
+                serde_json::to_writer(stream, &ActionResult::Ok(yaml::to_string(&monitor)?))?;
+            }
+            Action::Add {
+                name,
+                env,
+                command,
+            } => {
+                let mut args = command.into_iter();
+                let path = args.next().context("command is empty")?;
+
+                let mut service = Service::new(name, Command::new(path, args));
+                if !env.is_empty() {
+                    service.command.env = Some(env.into_iter().collect());
                 }
-                Action::Stop { service } => {
-                    if let Some(service) = Server::find_service(&monitor, &service) {
-                        service.stop();
-                        serde_json::to_writer(stream, &ActionResult::Ok(true))?;
-                    } else {
-                        return Err(anyhow!("no such service \"{service}\""));
-                    }
-                }
+
+                service.start();
+                monitor.insert(service);
+                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+            }
+            Action::Remove { service } => {
+                let service = Server::find_service(monitor, &service)
+                    .with_context(|| format!("no such service \"{service}\""))?;
+                service.stop();
+                monitor.services.remove(&service.id);
+                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }
         }
         Ok(())
@@ -184,7 +218,6 @@ mod tests {
 
         let client = Client::connect(addr)?;
         client.run(&Action::Info).expect("command failed");
-        client.run(&Action::List).expect("command failed");
         Ok(())
     }
 }

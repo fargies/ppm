@@ -35,18 +35,19 @@ pub mod utils;
 fn main() -> Result<()> {
     Registry::default()
         .with(EnvFilter::from_default_env())
-        .with(fmt::layer())
+        .with(fmt::layer().with_writer(std::io::stderr))
         .init();
 
     let args = Args::parse();
     match args.action {
         // `exec` the daemon process
-        Action::Daemon => Err(process::Command::new(
+        Action::Daemon { config } => Err(process::Command::new(
             current_exe()?
                 .parent()
                 .unwrap_or(Path::new("/"))
                 .join("ppm-daemon"),
         )
+        .env("PPM_CONFIG", config.unwrap_or_default())
         .exec())?,
         action => {
             Client::connect(args.addr)?.run(&action)?;
