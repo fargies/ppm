@@ -152,6 +152,21 @@ impl Server {
                 stream,
                 &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
             )?,
+            Action::Stats { service } => {
+                if let Some(service) = service {
+                    let service = Server::find_service(monitor, &service)
+                        .with_context(|| format!("no such service \"{service}\""))?;
+                    serde_json::to_writer(
+                        stream,
+                        &wrap_map_iterator([(service.id, service.stats())].into_iter()),
+                    )?
+                } else {
+                    serde_json::to_writer(
+                        stream,
+                        &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.stats()))),
+                    )?
+                }
+            }
             Action::Restart { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
@@ -168,11 +183,7 @@ impl Server {
             Action::ShowConfiguration => {
                 serde_json::to_writer(stream, &ActionResult::Ok(yaml::to_string(&monitor)?))?;
             }
-            Action::Add {
-                name,
-                env,
-                command,
-            } => {
+            Action::Add { name, env, command } => {
                 let mut args = command.into_iter();
                 let path = args.next().context("command is empty")?;
 

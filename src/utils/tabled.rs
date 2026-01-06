@@ -29,23 +29,32 @@ use humantime::format_duration;
 
 use crate::utils::IS_OUT_COLORED;
 
-pub trait TabledDisplay {
+pub trait TDisplay {
     fn to_string(&self) -> String;
 }
 
-impl TabledDisplay for Duration {
+impl TDisplay for Duration {
     fn to_string(&self) -> String {
-        format_duration(*self).to_string()
+        let nanos = self.as_nanos();
+        if nanos >= 60_000_000_000 {
+            format_duration(Duration::from_secs(self.as_secs())).to_string()
+        } else if nanos >= 1_000_000_000 {
+            format_duration(Duration::from_millis(self.as_millis() as u64)).to_string()
+        } else if nanos >= 1_000_000 {
+            format_duration(Duration::from_micros(self.as_micros() as u64)).to_string()
+        } else {
+            format_duration(*self).to_string()
+        }
     }
 }
 
-impl TabledDisplay for SystemTime {
+impl TDisplay for SystemTime {
     fn to_string(&self) -> String {
         DateTime::<Local>::from(*self).to_rfc3339_opts(SecondsFormat::Secs, true)
     }
 }
 
-impl TabledDisplay for bool {
+impl TDisplay for bool {
     fn to_string(&self) -> String {
         if IS_OUT_COLORED.get() {
             if *self {
@@ -59,9 +68,9 @@ impl TabledDisplay for bool {
     }
 }
 
-impl<T> TabledDisplay for Option<T>
+impl<T> TDisplay for Option<T>
 where
-    T: TabledDisplay,
+    T: TDisplay,
 {
     fn to_string(&self) -> String {
         self.as_ref().map_or_else(String::new, |t| t.to_string())

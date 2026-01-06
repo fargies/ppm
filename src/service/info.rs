@@ -21,20 +21,22 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::{IS_OUT_COLORED, tabled::TabledDisplay};
-use colored::Colorize;
+use crate::utils::tabled::TDisplay;
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tabled::{Tabled, derive::display};
 
-use super::Status;
+use super::{
+    Status,
+    tabled::{info_duration_str, info_status_str},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Tabled)]
 pub struct Info {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[tabled(display("display::option", ""))]
     pub pid: Option<libc::pid_t>,
-    #[tabled(display("TabledDisplay::to_string"))]
+    #[tabled(display("TDisplay::to_string"))]
     pub active: bool,
     #[tabled(display("info_status_str"))]
     pub status: Status,
@@ -43,7 +45,7 @@ pub struct Info {
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    #[tabled(display("TabledDisplay::to_string"), rename = "start time")]
+    #[tabled(display("TDisplay::to_string"), rename = "start time")]
     pub start_time: Option<SystemTime>,
     #[serde(
         with = "humantime_serde",
@@ -55,37 +57,6 @@ pub struct Info {
     #[serde(default)]
     #[tabled(rename = "↺")]
     pub restarts: usize,
-}
-
-fn info_status_str(status: &Status) -> String {
-    let str = format!("{status:?}");
-    if IS_OUT_COLORED.get() {
-        match status {
-            Status::Created => str.bright_black().to_string(),
-            Status::Running => str.green().to_string(),
-            Status::Finished => str.bright_black().to_string(),
-            Status::Stopped => str.bright_yellow().to_string(),
-            Status::Crashed => str.red().to_string(),
-        }
-    } else {
-        str
-    }
-}
-
-fn info_duration_str(end_time: &Option<SystemTime>, info: &Info) -> String {
-    (if let Some(end_time) = end_time {
-        info.start_time
-            .and_then(|start_time| end_time.duration_since(start_time).ok())
-    } else {
-        match info.status {
-            Status::Running | Status::Stopped => info
-                .start_time
-                .and_then(|start_time| start_time.elapsed().ok()),
-            _ => None,
-        }
-    })
-    .map(|d| Duration::from_secs(d.as_secs()).to_string())
-    .unwrap_or_else(String::new)
 }
 
 impl Default for Info {

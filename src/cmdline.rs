@@ -48,8 +48,8 @@ pub enum Action {
     /// Start the daemon
     #[command(skip)]
     List,
-    /// Dump info (aliases: list)
-    #[clap(alias = "list")]
+    /// Dump info (aliases: list, ls)
+    #[clap(aliases = ["list", "ls"])]
     Info,
     /// Restart the given service (aliases: start)
     #[clap(alias = "start")]
@@ -70,15 +70,20 @@ pub enum Action {
         #[clap(long, short, value_name = "NAME=VALUE", value_parser = parse_key_val::<String, String>)]
         env: Vec<(String, String)>,
         /// Command to run
-        #[clap(last=true)]
-        command: Vec<String>
+        #[clap(last = true)]
+        command: Vec<String>,
     },
     /// Stop and remove a service (aliases: rm, remove-service)
     #[clap(aliases=["rm", "remove-service"])]
-    Remove { service: String }
+    Remove { service: String },
+    /// Get statistics on a service (aliases: statistics, details)
+    #[clap(aliases=["statistics", "details"])]
+    Stats { service: Option<String> },
 }
 
-fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn std::error::Error + Send + Sync + 'static>>
+fn parse_key_val<T, U>(
+    s: &str,
+) -> Result<(T, U), Box<dyn std::error::Error + Send + Sync + 'static>>
 where
     T: std::str::FromStr,
     T::Err: std::error::Error + Send + Sync + 'static,

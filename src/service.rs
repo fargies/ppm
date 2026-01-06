@@ -51,10 +51,12 @@ pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
 
+mod tabled;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Service {
-    #[serde(skip_serializing_if="is_invalid_id")]
+    #[serde(skip_serializing_if = "is_invalid_id")]
     pub id: ServiceId,
     pub name: String,
     pub command: Command,
@@ -141,6 +143,11 @@ impl Service {
     /// Stop the process
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn stop(&self) {
+        {
+            let mut guard = self._info.lock().unwrap();
+            Arc::make_mut(&mut guard).active = false;
+        }
+
         if let Some(pid) = self.info().pid {
             tracing::debug!(pid, "trying to stop");
             if utils::waitpid(pid).is_some() {
@@ -152,10 +159,6 @@ impl Service {
             } else {
                 tracing::error!("failed to kill process");
             }
-            let mut guard = self._info.lock().unwrap();
-            let info = Arc::make_mut(&mut guard);
-            info.active = false;
-            info.set_finished();
         }
     }
 
@@ -209,6 +212,10 @@ impl Service {
 
     pub fn stats(&self) -> Arc<Stats> {
         Arc::clone(&self._stats.lock().unwrap())
+    }
+
+    pub fn update_stats(&self, stats: Stats) {
+        *self._stats.lock().unwrap() = Arc::new(stats);
     }
 }
 
