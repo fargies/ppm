@@ -67,6 +67,19 @@ pub fn find_config_file() -> Option<PathBuf> {
 }
 
 fn main() -> Result<()> {
+    #[cfg(feature = "size_optim")]
+    unsafe {
+        // Disable malloc arenas, will slow down the process but be more
+        // conservative on memory.
+        //
+        // By default 64bits systems will reserve 65MB using mmap per thread
+        // making VSZ extra-large, by setting `M_ARENA_MAX` to `1` malloc
+        // fallsback on lock based `sbrk` implementation (on a single default
+        // created arena).
+        //
+        // See man (3) mallopt
+        libc::mallopt(libc::M_ARENA_MAX, 1);
+    }
     Registry::default()
         .with(
             EnvFilter::builder()
@@ -92,7 +105,8 @@ fn main() -> Result<()> {
     });
 
     let server = cmdline::Server::new(Arc::clone(&monitor), addr)?;
-
-    std::thread::spawn(move || server.run());
+    std::thread::Builder::new()
+        .name("server".into())
+        .spawn(move || server.run())?;
     monitor.run()
 }

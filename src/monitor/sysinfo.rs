@@ -69,7 +69,7 @@ impl Sysinfo {
             .system
             .process(Pid::from(utils::signal::getpid() as usize))
         {
-            let mut stats = monitor.stats.lock().unwrap();
+            let mut stats = monitor._stats.lock().unwrap();
             *stats = Arc::new(self.make_stats(proc, &stats, Some(monitor.start_time.elapsed())));
         } else {
             tracing::warn!("failed to update daemon stats");

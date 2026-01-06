@@ -79,6 +79,11 @@ pub enum Action {
     /// Get statistics on a service (aliases: statistics, details)
     #[clap(aliases=["statistics", "details"])]
     Stats { service: Option<String> },
+    /// Get statsics from the daemon process
+    ///
+    /// Used by `statistics` command from cli
+    #[command(skip)]
+    DaemonStats,
 }
 
 fn parse_key_val<T, U>(

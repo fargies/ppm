@@ -27,8 +27,19 @@ serde_yaml_ng = "0.10.0"
 sysinfo = "0.37.2"
 tabled = { version = "0.20.0", features = ["ansi"] }
 tracing = "0.1.44"
-tracing-forest = { version = "0.3.0", features = ["ansi", "ansi_term", "chrono", "env-filter", "serde"] }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "local-time", "time", "tracing"] }
+tracing-forest = { version = "0.3.0", features = [
+    "ansi",
+    "ansi_term",
+    "chrono",
+    "env-filter",
+    "serde",
+] }
+tracing-subscriber = { version = "0.3.22", features = [
+    "env-filter",
+    "local-time",
+    "time",
+    "tracing",
+] }
 
 [dev-dependencies]
 ctor = "0.6.3"
@@ -36,3 +47,7 @@ serial_test = "3.2.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatchr = "1.0.0"
+
+[features]
+default = ["size_optim"]
+size_optim = []

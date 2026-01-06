@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde_yaml_ng as yaml;
 use std::{
     io::BufReader,
@@ -167,6 +167,7 @@ impl Server {
                     )?
                 }
             }
+            Action::DaemonStats => serde_json::to_writer(stream, &monitor.stats())?,
             Action::Restart { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
