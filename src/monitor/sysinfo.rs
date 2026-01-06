@@ -21,15 +21,19 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use dashmap::DashMap;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
-use dashmap::DashMap;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use crate::{
+    service::{Service, ServiceId, Stats},
+    utils,
+};
 
-use crate::service::{Service, ServiceId, Stats};
+use super::Monitor;
 
 pub struct Sysinfo {
     system: System,
@@ -56,10 +60,49 @@ impl Default for Sysinfo {
 }
 
 impl Sysinfo {
-    #[tracing::instrument(skip(self, services))]
-    pub fn update(&mut self, services: &DashMap<ServiceId, Arc<Service>>) {
-        self.fetch(services);
-        self.update_services(services);
+    #[tracing::instrument(skip(self, monitor))]
+    pub fn update(&mut self, monitor: &Monitor) {
+        self.fetch(&monitor.services);
+        self.update_services(&monitor.services);
+
+        if let Some(proc) = self
+            .system
+            .process(Pid::from(utils::signal::getpid() as usize))
+        {
+            let mut stats = monitor.stats.lock().unwrap();
+            *stats = Arc::new(self.make_stats(proc, &stats, Some(monitor.start_time.elapsed())));
+        } else {
+            tracing::warn!("failed to update daemon stats");
+        }
+    }
+
+    fn make_stats(&self, proc: &Process, old: &Stats, uptime: Option<Duration>) -> Stats {
+        let disk_usage = proc.disk_usage();
+        let mut stats = Stats {
+            cpu_usage: proc.cpu_usage(),
+            cpu_time: Duration::from_millis(proc.accumulated_cpu_time()),
+            mem_rss: proc.memory(),
+            mem_vsz: proc.virtual_memory(),
+            total_io_read: disk_usage.total_read_bytes,
+            total_io_write: disk_usage.total_written_bytes,
+            uptime,
+            ..Default::default()
+        };
+        tracing::debug!(?stats.uptime, ?old.uptime);
+        if let Some(interval) = stats.uptime.and_then(|new_uptime| {
+            old.uptime
+                .map(|old_uptime| new_uptime.saturating_sub(old_uptime))
+        }) && !interval.is_zero()
+        {
+            let interval = interval.as_secs_f64();
+            stats.io_read = ((disk_usage.total_read_bytes - old.total_io_read) as f64 / interval)
+                .round() as u64;
+            stats.io_write = ((disk_usage.total_written_bytes - old.total_io_write) as f64
+                / interval)
+                .round() as u64;
+        }
+
+        stats
     }
 
     #[tracing::instrument(skip(self, services))]
@@ -82,32 +125,11 @@ impl Sysinfo {
                     _ => {}
                 }
 
-                let mut stats = Arc::unwrap_or_clone(srv.stats());
-                let uptime = info.start_time.and_then(|t| t.elapsed().ok());
-                stats.cpu_usage = proc.cpu_usage();
-                stats.cpu_time = Duration::from_millis(proc.accumulated_cpu_time());
-                stats.mem_rss = proc.memory();
-                stats.mem_vsz = proc.virtual_memory();
-
-                let disk_usage = proc.disk_usage();
-                if let Some(interval) = uptime
-                    .and_then(|new_uptime| stats.uptime.map(|old_uptime| new_uptime - old_uptime))
-                    && !interval.is_zero()
-                {
-                    let interval = interval.as_secs_f64();
-                    stats.io_read = ((disk_usage.total_read_bytes - stats.total_io_read) as f64
-                        / interval)
-                        .round() as u64;
-                    stats.io_write =
-                        ((disk_usage.total_written_bytes - stats.total_io_write) as f64 / interval)
-                            .round() as u64;
-                }
-
-                stats.total_io_read = disk_usage.total_read_bytes;
-                stats.total_io_write = disk_usage.total_written_bytes;
-                stats.uptime = uptime;
-
-                srv.update_stats(stats);
+                srv.update_stats(self.make_stats(
+                    proc,
+                    &srv.stats(),
+                    info.start_time.and_then(|t| t.elapsed().ok()),
+                ));
             } else {
                 let stats = srv.stats();
                 if stats.uptime.is_some() {
@@ -133,6 +155,11 @@ impl Sysinfo {
             self.pids.push(pid);
         }
 
+        let daemon_pid = Pid::from(utils::signal::getpid() as usize);
+        if !processes.contains_key(&daemon_pid) {
+            self.pids.push(daemon_pid);
+        }
+
         tracing::trace!(pids = ?self.pids, "fetching info");
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::Some(self.pids.as_slice()),
@@ -146,6 +173,7 @@ impl Sysinfo {
         self.pids.clear();
         let processes = self.system.processes();
         for pid in processes.keys() {
+            tracing::warn!(?pid);
             self.pids.push(*pid);
         }
     }
@@ -161,28 +189,29 @@ mod tests {
 
     #[test]
     #[serial(waitpid)] // raises SIGCHLD
-    fn update_empty() -> Result<()> {
-        let mut sysinfo = Sysinfo::default();
-        let services = DashMap::<ServiceId, Arc<Service>>::new();
+    fn update() -> Result<()> {
+        let mon = Monitor::default();
         {
             let srv = Service::new("test", Command::new("sleep", ["300"]));
             srv.start();
-            services.insert(0, srv.into());
+            mon.services.insert(0, srv.into());
         }
-        sysinfo.update(&services);
-        assert_eq!(1, sysinfo.pids.len());
-        assert_eq!(1, sysinfo.system.processes().len());
-        for service in &services {
+
+        let mut sysinfo = Sysinfo::default();
+        sysinfo.update(&mon);
+        assert_eq!(2, sysinfo.pids.len());
+        assert_eq!(2, sysinfo.system.processes().len());
+        for service in &mon.services {
             let pid = service.info().pid.expect("process should be running");
             service.stop();
             // fake a crash
             service.set_running(pid);
         }
 
-        sysinfo.update(&services);
-        assert_eq!(0, sysinfo.pids.len());
-        assert_eq!(0, sysinfo.system.processes().len());
-        for service in &services {
+        sysinfo.update(&mon);
+        assert_eq!(1, sysinfo.pids.len());
+        assert_eq!(1, sysinfo.system.processes().len());
+        for service in &mon.services {
             assert_eq!(Status::Crashed, service.info().status);
         }
 
