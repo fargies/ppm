@@ -41,11 +41,13 @@ use tabled::{
 };
 
 use crate::{
-    service::{self, Command, Service, ServiceId},
+    service::{self, ServiceId},
     utils::{self, IS_OUT_COLORED},
 };
 
 use super::{Action, ActionResult};
+
+const STATS_DAEMON_NAME: &str = "<PPM daemon>";
 
 #[derive(Debug)]
 pub struct Client(TcpStream);
@@ -71,8 +73,11 @@ impl Client {
         serde_json::to_writer(&self.0, &action)?;
         tracing::trace!("action sent");
 
-        let reply = reader.next().unwrap().context("no reply from daemon")?;
-        Ok(reply)
+        if let Some(reply) = reader.next() {
+            Ok(reply.context("no reply from daemon")?)
+        } else {
+            Err(anyhow!("empty reply from daemon"))
+        }
     }
 
     #[tracing::instrument(fields(client = ?self.0.local_addr()?, server = ?self.0.peer_addr()?, ?action), skip(self))]
@@ -80,7 +85,7 @@ impl Client {
     pub fn run(&self, action: &Action) -> Result<()> {
         match action {
             Action::Daemon { .. } => unimplemented!("must be handled before connecting"),
-            Action::List => unimplemented!("not available from cmdline"),
+            Action::List | Action::DaemonStats => unimplemented!("not available from cmdline"),
             Action::Info => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
                 let info: HashMap<ServiceId, service::Info> = self.invoke(&Action::Info)?;
@@ -101,17 +106,26 @@ impl Client {
             action @ Action::Stats { .. } => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
                 let stats: HashMap<ServiceId, service::Stats> = self.invoke(action)?;
+                let daemon_stats: service::Stats = self.invoke(&Action::DaemonStats)?;
+                let daemon_name = String::from(STATS_DAEMON_NAME);
                 let mut keys: Vec<ServiceId> = stats.keys().copied().collect();
                 keys.sort();
 
-                let data = keys
-                    .iter()
-                    .filter_map(|id| stats.get(id).map(|x| (id, x)))
-                    .map(|(id, stats)| StatsRecord {
-                        id: *id,
-                        name: services_list.get(id),
-                        stats: stats.uptime.map(|_| stats),
-                    });
+                let data = Some(StatsRecord {
+                    id: 0,
+                    name: Some(&daemon_name),
+                    stats: daemon_stats.uptime.map(|_| &daemon_stats),
+                })
+                .into_iter()
+                .chain(
+                    keys.iter()
+                        .filter_map(|id| stats.get(id).map(|x| (id, x)))
+                        .map(|(id, stats)| StatsRecord {
+                            id: *id,
+                            name: services_list.get(id),
+                            stats: stats.uptime.map(|_| stats),
+                        }),
+                );
                 self.display(Table::new(data));
                 Ok(())
             }
@@ -119,7 +133,7 @@ impl Client {
                 self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
                 self.invoke::<ActionResult<()>>(action)?.into()
             }
-            Action::ShowConfiguration => match self.invoke::<ActionResult<String>>(&action)? {
+            Action::ShowConfiguration => match self.invoke::<ActionResult<String>>(action)? {
                 ActionResult::Ok(config) => {
                     print!("{config}");
                     Ok(())
@@ -165,7 +179,9 @@ struct StatsRecord<'a, 'b> {
 }
 
 fn stats_id(id: &ServiceId, rec: &StatsRecord) -> String {
-    if rec.stats.is_none() && IS_OUT_COLORED.get() {
+    if rec.name.is_some_and(|name| name == STATS_DAEMON_NAME) {
+        String::new()
+    } else if rec.stats.is_none() && IS_OUT_COLORED.get() {
         id.to_string().bright_black().to_string()
     } else {
         id.to_string()
@@ -174,7 +190,7 @@ fn stats_id(id: &ServiceId, rec: &StatsRecord) -> String {
 
 fn stats_name(name: &Option<&String>, rec: &StatsRecord) -> String {
     if let Some(name) = name {
-        if rec.stats.is_none() && IS_OUT_COLORED.get() {
+        if (rec.stats.is_none() || name.as_str() == STATS_DAEMON_NAME) && IS_OUT_COLORED.get() {
             name.bright_black().to_string()
         } else {
             name.to_string()

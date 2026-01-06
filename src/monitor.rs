@@ -24,7 +24,10 @@
 use anyhow::Result;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use std::{sync::{Arc, Mutex}, time::Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use crate::{
     service::{Info, Service, ServiceId, Stats, Status},
@@ -47,7 +50,7 @@ pub struct Monitor {
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
-    stats: Mutex<Arc<Stats>>,
+    _stats: Mutex<Arc<Stats>>,
     #[serde(skip)]
     start_time: Instant,
 }
@@ -58,7 +61,7 @@ impl Default for Monitor {
             interval: std::time::Duration::from_secs(1),
             services: Default::default(),
             sysinfo: Default::default(),
-            stats: Default::default(),
+            _stats: Default::default(),
             start_time: Instant::now(),
         }
     }
@@ -174,6 +177,10 @@ impl Monitor {
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
         service
+    }
+
+    pub fn stats(&self) -> Arc<Stats> {
+        Arc::clone(&self._stats.lock().unwrap())
     }
 }
 
