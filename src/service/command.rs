@@ -59,8 +59,7 @@ mod tests {
         let data = "path: ls\n\
         args:\n\
         - -l\n\
-        - -a\n\
-        env: null\n";
+        - -a\n";
         let cmd = Command::new("ls", ["-l", "-a"]);
 
         assert_eq!(data, serde_yaml_ng::to_string(&cmd).unwrap());

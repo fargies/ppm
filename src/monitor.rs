@@ -24,10 +24,10 @@
 use anyhow::Result;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, time::Instant};
 
 use crate::{
-    service::{Info, Service, ServiceId, Status},
+    service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
         signal::{self, SignalSet, Timer},
@@ -46,6 +46,10 @@ pub struct Monitor {
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
+    #[serde(skip)]
+    stats: Mutex<Arc<Stats>>,
+    #[serde(skip)]
+    start_time: Instant,
 }
 
 impl Default for Monitor {
@@ -54,44 +58,22 @@ impl Default for Monitor {
             interval: std::time::Duration::from_secs(1),
             services: Default::default(),
             sysinfo: Default::default(),
+            stats: Default::default(),
+            start_time: Instant::now(),
         }
     }
 }
 
 impl Monitor {
     #[tracing::instrument(skip(self))]
-    fn on_sigchld(&self) {
-        while let Some((pid, status)) = utils::waitpid(-1) {
-            if libc::WIFSIGNALED(status) {
-                let signal = signal::Signal(libc::WTERMSIG(status));
-                tracing::debug!(?signal, pid, "process killed");
-                if let Some(service) = self.find_by_pid(pid) {
-                    if signal == signal::SIGTERM {
-                        service.set_finished();
-                    } else {
-                        service.set_crashed();
-                    }
-                }
-            } else if libc::WIFEXITED(status) {
-                let code = libc::WEXITSTATUS(status);
-                tracing::debug!(code, pid, "process exited");
-                if let Some(service) = self.find_by_pid(pid) {
-                    if code == 0 {
-                        service.set_finished();
-                    } else {
-                        service.set_crashed();
-                    }
-                }
-            } else if libc::WIFSTOPPED(status) {
-                tracing::debug!(pid, "process stopped");
-                if let Some(service) = self.find_by_pid(pid) {
-                    service.set_stopped();
-                }
-            } else if libc::WIFCONTINUED(status) {
-                tracing::debug!(pid, "process continued");
-                if let Some(service) = self.find_by_pid(pid) {
-                    service.set_running(pid);
-                }
+    pub fn on_sigchld(&self) {
+        self.waitpid(-1);
+    }
+
+    fn waitpid(&self, pid: libc::pid_t) {
+        while let Some((pid, status)) = utils::waitpid(pid) {
+            if let Some(service) = self.find_by_pid(pid) {
+                service.on_waitpid(pid, status);
             }
         }
     }
@@ -125,7 +107,11 @@ impl Monitor {
     }
 
     pub fn run(&self) -> Result<()> {
-        let sigset = SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM + signal::SIGINT;
+        let sigset = SignalSet::default()
+            + signal::SIGALRM
+            + signal::SIGCHLD
+            + signal::SIGTERM
+            + signal::SIGINT;
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
         }
@@ -150,7 +136,7 @@ impl Monitor {
             match sigset.wait()? {
                 signal::SIGALRM => {
                     tracing::trace!("timer expired");
-                    self.sysinfo.lock().unwrap().update(&self.services);
+                    self.sysinfo.lock().unwrap().update(self);
                 }
                 signal::SIGCHLD => self.on_sigchld(),
                 sig @ (signal::SIGTERM | signal::SIGINT) => {

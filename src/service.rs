@@ -170,7 +170,9 @@ impl Service {
 
             let start = std::time::Instant::now();
             loop {
-                if utils::waitpid(pid).is_some() || self.info().pid.is_none() {
+                if let Some((_, status)) = utils::waitpid(pid) {
+                    self.on_waitpid(pid, status);
+                } else if self.info().pid.is_none() {
                     return true;
                 } else if &start.elapsed() < timeout {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -180,6 +182,34 @@ impl Service {
             }
         }
         true
+    }
+
+    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    pub fn on_waitpid(&self, pid: libc::pid_t, status: libc::c_int) {
+        if libc::WIFSIGNALED(status) {
+            let signal = signal::Signal(libc::WTERMSIG(status));
+            tracing::debug!(?signal, pid, "process killed");
+
+            if signal == signal::SIGTERM {
+                self.set_finished();
+            } else {
+                self.set_crashed();
+            }
+        } else if libc::WIFEXITED(status) {
+            let code = libc::WEXITSTATUS(status);
+            tracing::debug!(code, pid, "process exited");
+            if code == 0 {
+                self.set_finished();
+            } else {
+                self.set_crashed();
+            }
+        } else if libc::WIFSTOPPED(status) {
+            tracing::debug!(pid, "process stopped");
+            self.set_stopped();
+        } else if libc::WIFCONTINUED(status) {
+            tracing::debug!(pid, "process continued");
+            self.set_running(pid);
+        }
     }
 
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
@@ -233,35 +263,66 @@ impl Default for Service {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        monitor::Monitor,
+        utils::signal::{SIGALRM, SIGCHLD, SIGTERM},
+    };
+
     use super::*;
     use serial_test::serial;
 
-    #[test]
-    #[serial(waitpid)]
-    fn spawn() {
-        let mut srv = Service::new("test", Command::new("ls", ["-la"]));
-        srv.start();
-        assert!(srv.info().pid.is_some_and(|pid| pid > 0));
-        assert_eq!(srv.info().status, Status::Running);
-
-        // wait for command to terminate
-        std::thread::sleep(Duration::from_millis(100));
-        srv.stop();
-        assert_eq!(srv.info().pid, None);
-        assert_eq!(srv.info().status, Status::Finished);
+    #[ctor::ctor]
+    fn prepare() {
+        // rust test framewrok uses threads, the main process may handle signals
+        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD).block();
     }
 
     #[test]
     #[serial(waitpid)]
-    fn stop() {
-        let srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
-        srv.start();
-        assert!(srv.info().pid.is_some_and(|pid| pid > 0));
-        assert_eq!(srv.info().status, Status::Running);
+    fn spawn() -> Result<()> {
+        (SignalSet::empty() + SIGCHLD).block()?;
+        let service = Service::new("test", Command::new("ls", ["-la"]));
+        service.start();
+        let mon = Monitor::default();
+        let service = mon.insert(service);
 
-        srv.stop();
-        assert_eq!(srv.info().pid, None);
-        assert_eq!(srv.info().status, Status::Finished);
+        assert!(service.info().pid.is_some_and(|pid| pid > 0));
+        assert_eq!(service.info().status, Status::Running);
+
+        // wait for command to terminate
+        std::thread::sleep(Duration::from_millis(100));
+
+        mon.on_sigchld();
+
+        assert_eq!(service.info().pid, None);
+        assert_eq!(service.info().status, Status::Finished);
+
+        service.stop();
+        assert!(!service.info().active);
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn stop() -> Result<()> {
+        (SignalSet::empty() + SIGCHLD).block()?;
+        let service = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
+        service.start();
+        let mon = Monitor::default();
+        let service = mon.insert(service);
+
+        assert!(service.info().pid.is_some_and(|pid| pid > 0));
+        assert_eq!(service.info().status, Status::Running);
+
+        service.stop();
+        assert!(!service.info().active);
+        // wait for command to terminate
+        std::thread::sleep(Duration::from_millis(100));
+
+        mon.on_sigchld();
+        assert_eq!(service.info().pid, None);
+        assert_eq!(service.info().status, Status::Finished);
+        Ok(())
     }
 
     #[test]
