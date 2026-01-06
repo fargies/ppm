@@ -125,7 +125,7 @@ impl Monitor {
     }
 
     pub fn run(&self) -> Result<()> {
-        let sigset = SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM;
+        let sigset = SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM + signal::SIGINT;
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
         }
@@ -153,8 +153,8 @@ impl Monitor {
                     self.sysinfo.lock().unwrap().update(&self.services);
                 }
                 signal::SIGCHLD => self.on_sigchld(),
-                signal::SIGTERM => {
-                    tracing::info!("termination requested (SIGTERM)");
+                sig @ (signal::SIGTERM | signal::SIGINT) => {
+                    tracing::info!("termination requested ({:?})", sig);
                     return Ok(());
                 }
                 signal => {

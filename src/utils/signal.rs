@@ -50,6 +50,7 @@ pub const SIGCHLD: Signal = Signal(libc::SIGCHLD);
 pub const SIGTERM: Signal = Signal(libc::SIGTERM);
 pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
+pub const SIGINT: Signal = Signal(libc::SIGINT);
 
 static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     SignalSet(unsafe {
@@ -113,6 +114,7 @@ impl Debug for Signal {
             libc::SIGTERM => f.write_str("SIGTERM"),
             libc::SIGSTOP => f.write_str("SIGSTOP"),
             libc::SIGKILL => f.write_str("SIGKILL"),
+            libc::SIGINT => f.write_str("SIGINT"),
             sig => write!(f, "SIG({})", sig),
         }
         // f.write_str(")")

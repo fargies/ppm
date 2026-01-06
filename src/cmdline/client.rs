@@ -22,6 +22,7 @@
 */
 
 use anyhow::{Context, Result, anyhow};
+use colored::Colorize;
 use serde::de::DeserializeOwned;
 use std::{
     collections::HashMap,
@@ -41,7 +42,7 @@ use tabled::{
 
 use crate::{
     service::{self, Command, Service, ServiceId},
-    utils,
+    utils::{self, IS_OUT_COLORED},
 };
 
 use super::{Action, ActionResult};
@@ -97,9 +98,26 @@ impl Client {
                 self.display(Table::new(data));
                 Ok(())
             }
+            action @ Action::Stats { .. } => {
+                let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
+                let stats: HashMap<ServiceId, service::Stats> = self.invoke(action)?;
+                let mut keys: Vec<ServiceId> = stats.keys().copied().collect();
+                keys.sort();
+
+                let data = keys
+                    .iter()
+                    .filter_map(|id| stats.get(id).map(|x| (id, x)))
+                    .map(|(id, stats)| StatsRecord {
+                        id: *id,
+                        name: services_list.get(id),
+                        stats: stats.uptime.map(|_| stats),
+                    });
+                self.display(Table::new(data));
+                Ok(())
+            }
             action @ (Action::Stop { .. } | Action::Restart { .. } | Action::Remove { .. }) => {
                 self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
-                self.invoke::<ActionResult<()>>(&action)?.into()
+                self.invoke::<ActionResult<()>>(action)?.into()
             }
             Action::ShowConfiguration => match self.invoke::<ActionResult<String>>(&action)? {
                 ActionResult::Ok(config) => {
@@ -108,7 +126,7 @@ impl Client {
                 }
                 action => action.map(|_| ()).into(),
             },
-            action => self.invoke::<ActionResult<()>>(&action)?.into(),
+            action => self.invoke::<ActionResult<()>>(action)?.into(),
         }
     }
 
@@ -134,6 +152,36 @@ struct InfoRecord<'a, 'b> {
     name: Option<&'a String>,
     #[tabled(inline)]
     info: &'b service::Info,
+}
+
+#[derive(Tabled)]
+struct StatsRecord<'a, 'b> {
+    #[tabled(display("stats_id", self))]
+    id: ServiceId,
+    #[tabled(display("stats_name", self))]
+    name: Option<&'a String>,
+    #[tabled(inline)]
+    stats: Option<&'b service::Stats>,
+}
+
+fn stats_id(id: &ServiceId, rec: &StatsRecord) -> String {
+    if rec.stats.is_none() && IS_OUT_COLORED.get() {
+        id.to_string().bright_black().to_string()
+    } else {
+        id.to_string()
+    }
+}
+
+fn stats_name(name: &Option<&String>, rec: &StatsRecord) -> String {
+    if let Some(name) = name {
+        if rec.stats.is_none() && IS_OUT_COLORED.get() {
+            name.bright_black().to_string()
+        } else {
+            name.to_string()
+        }
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(test)]

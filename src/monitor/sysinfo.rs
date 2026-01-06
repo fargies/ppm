@@ -21,12 +21,15 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use dashmap::DashMap;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-use crate::service::{Service, ServiceId};
+use crate::service::{Service, ServiceId, Stats};
 
 pub struct Sysinfo {
     system: System,
@@ -68,6 +71,7 @@ impl Sysinfo {
                 .pid
                 .and_then(|p| self.system.process(Pid::from(p as usize)))
             {
+                tracing::trace!(id = srv.id, name = srv.name, "updating");
                 match proc.status() {
                     sysinfo::ProcessStatus::Idle => srv.set_running(info.pid.unwrap()),
                     sysinfo::ProcessStatus::Run => srv.set_running(info.pid.unwrap()),
@@ -78,14 +82,41 @@ impl Sysinfo {
                     _ => {}
                 }
 
-                let stats = Arc::unwrap_or_clone(srv.stats());
-                let uptime = info.start_time.map(|t| t.elapsed());
-                // let interval = stats
-                //     .uptime
-                //     .map(|last_uptime| uptime.map(|uptime| uptime - last_uptime));
-                // let interval = if let Some(s)
-            } else if info.pid.is_some() {
-                srv.set_crashed();
+                let mut stats = Arc::unwrap_or_clone(srv.stats());
+                let uptime = info.start_time.and_then(|t| t.elapsed().ok());
+                stats.cpu_usage = proc.cpu_usage();
+                stats.cpu_time = Duration::from_millis(proc.accumulated_cpu_time());
+                stats.mem_rss = proc.memory();
+                stats.mem_vsz = proc.virtual_memory();
+
+                let disk_usage = proc.disk_usage();
+                if let Some(interval) = uptime
+                    .and_then(|new_uptime| stats.uptime.map(|old_uptime| new_uptime - old_uptime))
+                    && !interval.is_zero()
+                {
+                    let interval = interval.as_secs_f64();
+                    stats.io_read = ((disk_usage.total_read_bytes - stats.total_io_read) as f64
+                        / interval)
+                        .round() as u64;
+                    stats.io_write =
+                        ((disk_usage.total_written_bytes - stats.total_io_write) as f64 / interval)
+                            .round() as u64;
+                }
+
+                stats.total_io_read = disk_usage.total_read_bytes;
+                stats.total_io_write = disk_usage.total_written_bytes;
+                stats.uptime = uptime;
+
+                srv.update_stats(stats);
+            } else {
+                let stats = srv.stats();
+                if stats.uptime.is_some() {
+                    srv.update_stats(Stats::default());
+                }
+
+                if info.pid.is_some() {
+                    srv.set_crashed();
+                }
             }
         }
     }
@@ -102,10 +133,14 @@ impl Sysinfo {
             self.pids.push(pid);
         }
 
+        tracing::trace!(pids = ?self.pids, "fetching info");
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::Some(self.pids.as_slice()),
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+            ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_disk_usage(),
         );
 
         self.pids.clear();
