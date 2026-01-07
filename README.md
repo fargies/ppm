@@ -22,6 +22,38 @@ ppm daemon --config "config.yml"
 PPM_CONFIG="config.yml" ppm-daemon
 ```
 
+### Usage
+
+Here are some example commands, details may be retrieved using `--help` option:
+```bash
+# Run the daemon, likely to run this in the background
+ppm daemon
+
+# List running services
+ppm info
+ppm ls
+
+# Add a new service
+ppm add --name my_test_service --env 'RUST_LOG=trace' -- sh -c "while true; echo world; sleep 30; done"
+
+# Add a one-shot service
+ppm add --name my_oneshot_service -- ls -la
+
+# Remove a service
+ppm rm my_oneshot_service
+
+# Get statistics about running services
+ppm stats
+
+# Create configuration file
+ppm show-configuration > ~/.partner-pm.yml
+```
+
+## Internals
+
+###
+
+
 ## Why "PPM" ?
 
 **PPM** stands for **P**artner **P**rocess **M**onitor, *Partner* being a
