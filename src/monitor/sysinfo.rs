@@ -173,7 +173,6 @@ impl Sysinfo {
         self.pids.clear();
         let processes = self.system.processes();
         for pid in processes.keys() {
-            tracing::warn!(?pid);
             self.pids.push(*pid);
         }
     }
