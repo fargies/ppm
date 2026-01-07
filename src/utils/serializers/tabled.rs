@@ -22,11 +22,12 @@
 */
 
 use colored::Colorize;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{DateTime, Local, SecondsFormat};
 use humantime::format_duration;
 
+use super::instant::to_systime;
 use crate::utils::IS_OUT_COLORED;
 
 pub trait TDisplay {
@@ -51,6 +52,12 @@ impl TDisplay for Duration {
 impl TDisplay for SystemTime {
     fn to_string(&self) -> String {
         DateTime::<Local>::from(*self).to_rfc3339_opts(SecondsFormat::Secs, true)
+    }
+}
+
+impl TDisplay for Instant {
+    fn to_string(&self) -> String {
+        DateTime::<Local>::from(to_systime(self)).to_rfc3339_opts(SecondsFormat::Secs, true)
     }
 }
 

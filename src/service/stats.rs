@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::tabled::TDisplay;
+use crate::utils::serializers::tabled::TDisplay;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tabled::Tabled;

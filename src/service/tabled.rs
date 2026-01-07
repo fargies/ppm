@@ -21,10 +21,10 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 use super::{Info, Status};
-use crate::utils::{IS_OUT_COLORED, tabled::TDisplay};
+use crate::utils::{IS_OUT_COLORED, serializers::tabled::TDisplay};
 use colored::Colorize;
 
 pub fn info_status_str(status: &Status) -> String {
@@ -42,15 +42,13 @@ pub fn info_status_str(status: &Status) -> String {
     }
 }
 
-pub fn info_duration_str(end_time: &Option<SystemTime>, info: &Info) -> String {
+pub fn info_duration_str(end_time: &Option<Instant>, info: &Info) -> String {
     (if let Some(end_time) = end_time {
-        info.start_time
-            .and_then(|start_time| end_time.duration_since(start_time).ok())
+        info.start_time.map(|start_time| end_time.duration_since(start_time))
     } else {
         match info.status {
             Status::Running | Status::Stopped => info
-                .start_time
-                .and_then(|start_time| start_time.elapsed().ok()),
+                .start_time.map(|start_time| start_time.elapsed()),
             _ => None,
         }
     })
@@ -61,14 +59,11 @@ pub fn info_duration_str(end_time: &Option<SystemTime>, info: &Info) -> String {
 pub fn bytes_str(value: &u64) -> String {
     if value >= &0x4000_0000 {
         format!("{:.2} GiB", *value as f64 / 0x4000_0000 as f64)
-    }
-    else if value >= &0x10_0000 {
+    } else if value >= &0x10_0000 {
         format!("{:.2} MiB", *value as f64 / 0x10_0000 as f64)
-    }
-    else if value >= &0x400 {
+    } else if value >= &0x400 {
         format!("{:.2} KiB", *value as f64 / 0x400 as f64)
-    }
-    else {
+    } else {
         format!("{:.2} B", value)
     }
 }

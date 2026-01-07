@@ -21,6 +21,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+#![allow(dead_code)]
+
 use std::sync::{
     LazyLock,
     atomic::{AtomicBool, Ordering},

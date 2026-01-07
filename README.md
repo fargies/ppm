@@ -49,10 +49,19 @@ ppm stats
 ppm show-configuration > ~/.partner-pm.yml
 ```
 
-## Internals
+## How does it work ?
 
-###
+### Status
 
+A service may be in different states:
+- **Created**  : this is a temporary state, the daemon hasn't yet handled the newly created service
+- **Running**  : service is live and running
+- **Finished** : service is terminated either on its own with a `0` exit code, or by receiving a `SIGTERM`
+- **Stopped**  : service is live but stopped (it received a `SIGSTP`)
+- **Crashed**  : service died with a `!= 0` exit code, or by receiving a signal `!= SIGTERM`
+
+When a service goes into **Crashed** state it will be restarted by the daemon, using
+and exponential backoff mechanism: `interval * (2^(nb_restart - 1))`.
 
 ## Why "PPM" ?
 

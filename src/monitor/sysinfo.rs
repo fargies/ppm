@@ -128,7 +128,7 @@ impl Sysinfo {
                 srv.update_stats(self.make_stats(
                     proc,
                     &srv.stats(),
-                    info.start_time.and_then(|t| t.elapsed().ok()),
+                    info.start_time.map(|t| t.elapsed()),
                 ));
             } else {
                 let stats = srv.stats();

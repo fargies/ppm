@@ -109,6 +109,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub trait SaveToFile: Sized {
     fn save_to_file(&self, filename: &Path) -> Result<()>;
 }

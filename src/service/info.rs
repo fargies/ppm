@@ -21,9 +21,9 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::tabled::TDisplay;
+use crate::utils::serializers::{self, tabled::TDisplay};
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::time::Instant;
 use tabled::{Tabled, derive::display};
 
 use super::{
@@ -41,19 +41,19 @@ pub struct Info {
     #[tabled(display("info_status_str"))]
     pub status: Status,
     #[serde(
-        with = "humantime_serde",
+        with = "serializers::instant::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     #[tabled(display("TDisplay::to_string"), rename = "start time")]
-    pub start_time: Option<SystemTime>,
+    pub start_time: Option<Instant>,
     #[serde(
-        with = "humantime_serde",
+        with = "serializers::instant::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     #[tabled(display("info_duration_str", self), rename = "uptime")]
-    pub end_time: Option<SystemTime>,
+    pub end_time: Option<Instant>,
     #[serde(default)]
     #[tabled(rename = "↺")]
     pub restarts: usize,
@@ -78,7 +78,7 @@ impl Info {
             Status::Created | Status::Finished | Status::Crashed => {
                 tracing::info!("{:?} -> {:?}", self.status, Status::Running);
                 self.pid = Some(pid);
-                self.start_time = Some(std::time::SystemTime::now());
+                self.start_time = Some(std::time::Instant::now());
                 self.restarts += 1;
                 self.status = Status::Running;
                 self.end_time = None;
@@ -101,7 +101,7 @@ impl Info {
                 tracing::info!("{:?} -> {:?}", self.status, Status::Finished);
                 self.pid = None;
                 self.status = Status::Finished;
-                self.end_time = Some(std::time::SystemTime::now());
+                self.end_time = Some(std::time::Instant::now());
             }
             Status::Finished => {}
             _ => tracing::warn!(
@@ -117,7 +117,7 @@ impl Info {
             Status::Running => {
                 tracing::info!("{:?} -> {:?}", self.status, Status::Stopped);
                 self.status = Status::Stopped;
-                self.end_time = Some(std::time::SystemTime::now());
+                self.end_time = Some(std::time::Instant::now());
             }
             Status::Stopped => {}
             _ => tracing::warn!(
@@ -134,7 +134,7 @@ impl Info {
                 tracing::warn!("{:?} -> {:?}", self.status, Status::Crashed);
                 self.pid = None;
                 self.status = Status::Crashed;
-                self.end_time = Some(std::time::SystemTime::now());
+                self.end_time = Some(std::time::Instant::now());
             }
             Status::Crashed => {}
             _ => tracing::warn!(
