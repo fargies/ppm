@@ -1,0 +1,43 @@
+on: [ push, workflow_dispatch ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-ubuntu-default:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch sources
+        uses: https://gitea.com/actions/checkout@v5
+      - name: Install Rust
+        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
+      - name: Build project
+        run: cargo build
+      - name: Run tests
+        run: cargo test
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+  build-archlinux:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Prepare container
+        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
+        with:
+          dependencies: base-devel
+      - name: Build project
+        run: cargo build
+      - name: Run tests
+        run: cargo test
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+      - name: Build package
+        run: |
+          cargo install cargo-arch
+          cargo arch
+      - name: Upload artifacts
+        uses: https://gitea.com/actions/gitea-upload-artifact@v4
+        with:
+          name: packages
+          path: '*.pkg.tar.zst'

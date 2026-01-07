@@ -67,7 +67,7 @@ pub fn find_config_file() -> Option<PathBuf> {
 }
 
 fn main() -> Result<()> {
-    #[cfg(feature = "size_optim")]
+    #[cfg(all(feature = "size_optim", target_os = "linux"))]
     unsafe {
         // Disable malloc arenas, will slow down the process but be more
         // conservative on memory.
@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         // created arena).
         //
         // See man (3) mallopt
-        libc::mallopt(libc::M_ARENA_MAX, 1);
+       libc::mallopt(libc::M_ARENA_MAX, 1);
     }
     Registry::default()
         .with(
