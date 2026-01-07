@@ -21,6 +21,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+#![allow(dead_code)]
+
 use libc::{timer_t, sigevent, itimerspec ,timer_create, timer_settime, timer_delete};
 use std::{ptr::null_mut, time::Duration};
 use anyhow::Result;

@@ -21,6 +21,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+#![allow(dead_code)]
+
 use std::{
     sync::RwLock,
     time::{Duration, Instant, SystemTime},
@@ -37,7 +39,7 @@ fn update_ref_instant() {
     *REF_INSTANT.write().unwrap() = Some((Instant::now(), SystemTime::now()));
 }
 
-fn from_systime(systime: &SystemTime) -> Instant {
+pub fn from_systime(systime: &SystemTime) -> Instant {
     if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
         let duration = systime
             .duration_since(ref_instant.1)
@@ -50,7 +52,7 @@ fn from_systime(systime: &SystemTime) -> Instant {
     from_systime(systime)
 }
 
-fn to_systime(instant: &Instant) -> SystemTime {
+pub fn to_systime(instant: &Instant) -> SystemTime {
     if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
         let duration = instant.duration_since(ref_instant.0);
         if duration <= MAX_REF_AGE {
@@ -75,10 +77,30 @@ where
     humantime_serde::deserialize(deserializer).map(|timestamp: SystemTime| from_systime(&timestamp))
 }
 
+pub mod option {
+    use super::*;
+
+    pub fn serialize<S>(instant: &Option<Instant>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        humantime_serde::serialize(
+            &instant.as_ref().map(to_systime),
+            serializer,
+        )
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Instant>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        humantime_serde::deserialize(deserializer)
+            .map(|timestamp: SystemTime| Some(from_systime(&timestamp)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
-    fn serde() {
-
-    }
+    fn serde() {}
 }

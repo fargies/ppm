@@ -81,14 +81,14 @@ impl Monitor {
         }
     }
 
-    fn next_restart(&self, info: &Info) -> Option<std::time::SystemTime> {
+    fn next_restart(&self, info: &Info) -> Option<std::time::Instant> {
         info.end_time
             .map(|d| d + self.interval * (1 << (info.restarts - 1)))
     }
 
     #[tracing::instrument(skip(self))]
     pub fn process(&self) {
-        let now = std::time::SystemTime::now();
+        let now = std::time::Instant::now();
 
         for srv in self.services.iter() {
             let info = srv.info();
