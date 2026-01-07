@@ -24,13 +24,11 @@
 use std::{io::IsTerminal, sync::atomic::AtomicBool};
 
 mod serde_utils;
-pub use serde_utils::{InnerRef, LoadFromFile, SaveToFile, wrap_map_iterator};
+pub use serde_utils::{InnerRef, LoadFromFile, wrap_map_iterator};
 
 pub mod signal;
 
 pub mod serializers;
-
-pub mod tabled;
 
 mod lazy_bool;
 pub use lazy_bool::LazyBool;
@@ -40,24 +38,6 @@ pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
         std::io::stdout().is_terminal() && !std::env::var("NO_COLOR").is_ok_and(|v| !v.is_empty()),
     )
 });
-
-#[tracing::instrument(level = "TRACE", ret)]
-pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Duration) -> bool {
-    unsafe {
-        libc::kill(pid, signal);
-    }
-
-    let start = std::time::Instant::now();
-    loop {
-        if waitpid(pid).is_some() {
-            return true;
-        } else if start.elapsed() < timeout {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        } else {
-            return false;
-        }
-    }
-}
 
 pub fn waitpid(pid: libc::pid_t) -> Option<(libc::pid_t, libc::c_int)> {
     let mut status: libc::c_int = 0;

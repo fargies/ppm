@@ -48,6 +48,7 @@ pub struct Signal(pub libc::c_int);
 pub const SIGALRM: Signal = Signal(libc::SIGALRM);
 pub const SIGCHLD: Signal = Signal(libc::SIGCHLD);
 pub const SIGTERM: Signal = Signal(libc::SIGTERM);
+#[allow(dead_code)]
 pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
 pub const SIGINT: Signal = Signal(libc::SIGINT);

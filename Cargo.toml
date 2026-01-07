@@ -1,5 +1,11 @@
 [package]
 name = "ppm"
+description = "Partner Process Monitor"
+authors = ["Sylvain Fargier <fargier.sylvain@gmail.com>"]
+license = "zlib"
+license-file = "COPYING"
+readme = "README.md"
+homepage = "https://www.gremory.org/gitea/fargie_s/ppm"
 version = "0.1.0"
 edition = "2024"
 
