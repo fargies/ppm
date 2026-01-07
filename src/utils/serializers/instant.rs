@@ -34,8 +34,9 @@ use serde::{Deserializer, Serializer};
 static REF_INSTANT: RwLock<Option<(Instant, SystemTime)>> = RwLock::new(None);
 const MAX_REF_AGE: Duration = Duration::from_hours(1);
 
-#[tracing::instrument(ret)]
+#[tracing::instrument()]
 fn update_ref_instant() {
+    tracing::info!("updating time reference");
     *REF_INSTANT.write().unwrap() = Some((Instant::now(), SystemTime::now()));
 }
 
