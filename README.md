@@ -1,6 +1,22 @@
 # PPM
 
-## Getting started
+**PPM** (**P**artner **P**rocess **M**onitor) is a process-monitoring application designed to run and supervise processes inside [Docker](https://www.docker.com/) containers.
+
+It aims to be **low-overhead** and **low-footprint**, with ease of use as a core principle, while still offering optional advanced features such as:
+
+* Resource usage reporting
+* Cron support
+* Other monitoring utilities
+
+## Why “PPM”?
+
+**PPM** stands for **P**artner **P**rocess **M**onitor. *Partner* refers to a personal suite of tools and utilities used to scan and monitor networks, desktops, files, and more, written in different programming languages.
+
+After evaluating existing solutions—most notably [pm2](https://pm2.keymetrics.io), which is written in [Node.js](https://nodejs.org), as well as alternatives like [pmc](https://pmc.dev)—none fully matched my requirements.
+
+As a result, I decided to build a **minimalist yet feature-rich process monitoring tool** in [Rust](https://www.rust-lang.org).
+
+## Getting Started
 
 ### Installation
 
@@ -8,33 +24,37 @@
 
 ### Configuration
 
-A configuration file may be created in one of the following locations:
-- `~/.config/partner/partner-pm.yml`
-- `~/.partner-pm.yml`
-- `.partner-pm.yml`
+A configuration file can be created in any of the following locations:
 
-Or using a custom file:
+* `~/.config/partner/partner-pm.yml`
+* `~/.partner-pm.yml`
+* `.partner-pm.yml`
+
+Alternatively, you can specify a custom configuration file:
+
 ```bash
-# Using ppm command-line utility:
+# Using the ppm command-line utility
 ppm daemon --config "config.yml"
 
-# Running the daemon directly :
+# Running the daemon directly
 PPM_CONFIG="config.yml" ppm-daemon
 ```
 
 ### Usage
 
-Here are some example commands, details may be retrieved using `--help` option:
+Below are some example commands. Additional details are available using the `--help` option.
+
 ```bash
-# Run the daemon, likely to run this in the background
+# Run the daemon (typically in the background)
 ppm daemon
 
 # List running services
 ppm info
 ppm ls
 
-# Add a new service
-ppm add --name my_test_service --env 'RUST_LOG=trace' -- sh -c "while true; echo world; sleep 30; done"
+# Add a new long-running service
+ppm add --name my_test_service --env 'RUST_LOG=trace' -- \
+  sh -c "while true; do echo world; sleep 30; done"
 
 # Add a one-shot service
 ppm add --name my_oneshot_service -- ls -la
@@ -45,32 +65,29 @@ ppm rm my_oneshot_service
 # Get statistics about running services
 ppm stats
 
-# Create configuration file
+# Generate a configuration file
 ppm show-configuration > ~/.partner-pm.yml
 ```
 
-## How does it work ?
+## How Does It Work?
 
-### Status
+### Service Status
 
-A service may be in different states:
-- **Created**  : this is a temporary state, the daemon hasn't yet handled the newly created service
-- **Running**  : service is live and running
-- **Finished** : service is terminated either on its own with a `0` exit code, or by receiving a `SIGTERM`
-- **Stopped**  : service is live but stopped (it received a `SIGSTP`)
-- **Crashed**  : service died with a `!= 0` exit code, or by receiving a signal `!= SIGTERM`
+**PPM** spawns and monitors *services*, each of which can be in one of the following states:
 
-When a service goes into **Crashed** state it will be restarted by the daemon, using
-and exponential backoff mechanism: `interval * (2^(nb_restart - 1))`.
+* **Created**
+  Temporary state; the daemon has not yet handled the newly created service.
 
-## Why "PPM" ?
+* **Running**
+  The service is live and executing.
 
-**PPM** stands for **P**artner **P**rocess **M**onitor, *Partner* being a
-personnal (as in used only by Sylvain Fargier <fargier.sylvain@gmail.com>) suite
-of tools and utilities to scan and monitor networks, desktops, files ... written
-in different languages.
+* **Finished**
+  The service has terminated normally with exit code `0`, or received a `SIGTERM`.
 
-Considering that [pm2](https://pm2.keymetrics.io) written in [Node.js](https://nodejs.org)
-and not finding any alternatives that would fit my needs, (having considered
-[pmc](https://pmc.dev) and others) I decided to write a minimalist, yet feature-full
-process-monitoring software, in [Rust](https://rust-lang.org).
+* **Stopped**
+  The service is paused after receiving a `SIGSTP`.
+
+* **Crashed**
+  The service terminated with a non-zero exit code, or received a signal other than `SIGTERM`.
+
+When a service enters the **Crashed** state, it is automatically restarted by the daemon using an exponential backoff strategy: `interval * (2^(nb_restart - 1))`
