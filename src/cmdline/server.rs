@@ -116,7 +116,7 @@ impl Server {
         service
             .parse::<ServiceId>()
             .ok()
-            .and_then(|id| monitor.get(id))
+            .and_then(|id| monitor.get(&id))
             .or_else(|| monitor.find_by_name(service))
     }
 
@@ -141,16 +141,18 @@ impl Server {
             }
             Action::List => serde_json::to_writer(
                 stream,
-                &wrap_map_iterator(
+                &ActionResult::Ok(wrap_map_iterator(
                     monitor
                         .services
                         .iter()
                         .map(|x| (x.id, InnerRef(x, |x| &x.name))),
-                ),
+                )),
             )?,
             Action::Info => serde_json::to_writer(
                 stream,
-                &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
+                &ActionResult::Ok(wrap_map_iterator(
+                    monitor.services.iter().map(|x| (x.id, x.info())),
+                )),
             )?,
             Action::Stats { service } => {
                 if let Some(service) = service {
@@ -158,16 +160,22 @@ impl Server {
                         .with_context(|| format!("no such service \"{service}\""))?;
                     serde_json::to_writer(
                         stream,
-                        &wrap_map_iterator([(service.id, service.stats())].into_iter()),
+                        &ActionResult::Ok(wrap_map_iterator(
+                            [(service.id, service.stats())].into_iter(),
+                        )),
                     )?
                 } else {
                     serde_json::to_writer(
                         stream,
-                        &wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.stats()))),
+                        &ActionResult::Ok(wrap_map_iterator(
+                            monitor.services.iter().map(|x| (x.id, x.stats())),
+                        )),
                     )?
                 }
             }
-            Action::DaemonStats => serde_json::to_writer(stream, &monitor.stats())?,
+            Action::DaemonStats => {
+                serde_json::to_writer(stream, &ActionResult::Ok(monitor.stats()))?
+            }
             Action::Restart { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
@@ -183,6 +191,9 @@ impl Server {
             }
             Action::ShowConfiguration => {
                 serde_json::to_writer(stream, &ActionResult::Ok(yaml::to_string(&monitor)?))?;
+            }
+            Action::ShowScheduler => {
+                serde_json::to_writer(stream, &ActionResult::Ok(monitor.scheduler.dump()))?;
             }
             Action::Add { name, env, command } => {
                 let mut args = command.into_iter();
@@ -201,7 +212,7 @@ impl Server {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
                 service.stop();
-                monitor.services.remove(&service.id);
+                monitor.remove(&service.id);
                 serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }
         }

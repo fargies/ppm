@@ -28,7 +28,7 @@ use std::{
     collections::HashMap,
     io::BufReader,
     net::{TcpStream, ToSocketAddrs},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tabled::{
     Table, Tabled,
@@ -41,8 +41,9 @@ use tabled::{
 };
 
 use crate::{
+    monitor::scheduler::SchedulerEvent,
     service::{self, ServiceId},
-    utils::{self, IS_OUT_COLORED},
+    utils::{self, IS_OUT_COLORED, serializers::tabled::TDisplay},
 };
 
 use super::{Action, ActionResult};
@@ -68,13 +69,13 @@ impl Client {
     where
         R: DeserializeOwned + std::fmt::Debug,
     {
-        let mut reader =
-            serde_json::Deserializer::from_reader(BufReader::new(&self.0)).into_iter::<R>();
+        let mut reader = serde_json::Deserializer::from_reader(BufReader::new(&self.0))
+            .into_iter::<ActionResult<R>>();
         serde_json::to_writer(&self.0, &action)?;
         tracing::trace!("action sent");
 
         if let Some(reply) = reader.next() {
-            Ok(reply.context("no reply from daemon")?)
+            reply.context("no reply from daemon")?.into()
         } else {
             Err(anyhow!("empty reply from daemon"))
         }
@@ -131,16 +132,21 @@ impl Client {
             }
             action @ (Action::Stop { .. } | Action::Restart { .. } | Action::Remove { .. }) => {
                 self.0.set_read_timeout(Some(Duration::from_secs(30)))?;
-                self.invoke::<ActionResult<()>>(action)?.into()
+                self.invoke(action)
             }
-            Action::ShowConfiguration => match self.invoke::<ActionResult<String>>(action)? {
-                ActionResult::Ok(config) => {
-                    print!("{config}");
-                    Ok(())
-                }
-                action => action.map(|_| ()).into(),
-            },
-            action => self.invoke::<ActionResult<()>>(action)?.into(),
+            action @ Action::ShowConfiguration => self
+                .invoke::<String>(action)
+                .map(|config| print!("{config}")),
+            action @ Action::ShowScheduler => {
+                let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
+                let sched: Vec<SchedulerEvent> = self.invoke(action)?;
+                let data = sched
+                    .into_iter()
+                    .map(|event| SchedulerEventRecord::new(event, &services_list));
+                self.display(Table::new(data));
+                Ok(())
+            }
+            action => self.invoke(action),
         }
     }
 
@@ -197,6 +203,38 @@ fn stats_name(name: &Option<&String>, rec: &StatsRecord) -> String {
         }
     } else {
         String::new()
+    }
+}
+
+#[derive(Tabled)]
+struct SchedulerEventRecord<'a> {
+    #[tabled(display("display::option", ""))]
+    id: Option<ServiceId>,
+    #[tabled(display("display::option", ""))]
+    name: Option<&'a String>,
+    event: String,
+    #[tabled(display("TDisplay::to_string"), rename = "scheduled time")]
+    timestamp: Instant,
+}
+
+impl<'a> SchedulerEventRecord<'a> {
+    pub fn new(event: SchedulerEvent, services_list: &'a HashMap<ServiceId, String>) -> Self {
+        let id = event.id();
+        Self {
+            id,
+            name: id.and_then(|id| services_list.get(&id)),
+            event: Self::event_name(&event),
+            timestamp: *event.instant(),
+        }
+    }
+
+    fn event_name(event: &SchedulerEvent) -> String {
+        match event {
+            SchedulerEvent::ServiceSchedule { .. } => "schedule",
+            SchedulerEvent::ServiceRestart { .. } => "restart",
+            SchedulerEvent::Sysinfo { .. } => "stats",
+        }
+        .into()
     }
 }
 

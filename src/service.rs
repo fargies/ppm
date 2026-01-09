@@ -21,11 +21,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::{
-    self,
-    signal::{self, Signal, SignalSet},
-};
 use anyhow::{Result, anyhow};
+use croner::Cron;
 use serde::{Deserialize, Serialize};
 use std::process;
 use std::sync::{
@@ -33,6 +30,12 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::{os::unix::process::CommandExt, time::Duration};
+
+use crate::monitor::Monitor;
+use crate::utils::{
+    self,
+    signal::{self, Signal, SignalSet},
+};
 
 mod command;
 pub use command::Command;
@@ -46,24 +49,52 @@ pub use stats::Stats;
 mod status;
 pub use status::Status;
 
+mod tabled;
+
 static S_ID: AtomicUsize = AtomicUsize::new(0);
 pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
 
-mod tabled;
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Service {
+    /// Service ID
     #[serde(skip_serializing_if = "is_invalid_id")]
     pub id: ServiceId,
+    /// Service name
     pub name: String,
+    /// Command to run
     pub command: Command,
+    /// Command schedule for periodic commands
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<Cron>,
+    /// Running process informations
     #[serde(skip)]
     _info: Mutex<Arc<Info>>,
+    /// Running process statistics
     #[serde(skip)]
     _stats: Mutex<Arc<Stats>>,
+}
+
+impl std::fmt::Debug for Service {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut binding = f.debug_struct("Service");
+        binding
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("command", &self.command);
+        if self.schedule.is_some() {
+            binding
+                .field(
+                    "schedule",
+                    &format_args!("{}", self.schedule.as_ref().unwrap()),
+                )
+                .finish()
+        } else {
+            binding.field("schedule", &self.schedule).finish()
+        }
+    }
 }
 
 fn is_invalid_id(id: &ServiceId) -> bool {
@@ -79,6 +110,7 @@ impl Service {
             id: S_ID.fetch_add(1, Ordering::Relaxed),
             name: name.to_string(),
             command,
+            schedule: Default::default(),
             _info: Default::default(),
             _stats: Default::default(),
         }
@@ -141,6 +173,9 @@ impl Service {
     }
 
     /// Stop the process
+    ///
+    /// May timeout when called from [Monitor] thread, waiting for zombie to be
+    /// released.
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn stop(&self) {
         {
@@ -150,29 +185,33 @@ impl Service {
 
         if let Some(pid) = self.info().pid {
             tracing::debug!(pid, "trying to stop");
-            if utils::waitpid(pid).is_some() {
-                tracing::info!(pid = pid, "process (already) terminated");
-            } else if self.terminate(signal::SIGTERM, &Duration::from_secs(5)) {
+            if self.terminate(signal::SIGTERM, &Duration::from_secs(5)) {
                 tracing::info!(pid = pid, "process terminated");
             } else if self.terminate(signal::SIGKILL, &Duration::from_secs(10)) {
                 tracing::info!(pid = pid, "process killed");
             } else {
                 tracing::error!("failed to kill process");
             }
+        } else {
+            tracing::info!("process (already) terminated");
         }
     }
 
     /// send a termination signal, wait for process end
+    ///
+    /// This will not update the service `info`, the `Monitor` thread should
+    /// do using `waitpid`
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     fn terminate(&self, signal: Signal, timeout: &Duration) -> bool {
         if let Some(pid) = self.info().pid {
-            let _ = Signal::kill(pid, signal);
+            if Signal::kill(pid, signal).is_err() {
+                // already dead
+                return true;
+            }
 
             let start = std::time::Instant::now();
             loop {
-                if let Some((_, status)) = utils::waitpid(pid) {
-                    self.on_waitpid(pid, status);
-                } else if self.info().pid.is_none() {
+                if !Signal::exists(pid) || self.info().pid.is_none() {
                     return true;
                 } else if &start.elapsed() < timeout {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -184,52 +223,36 @@ impl Service {
         true
     }
 
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
-    pub fn on_waitpid(&self, pid: libc::pid_t, status: libc::c_int) {
-        if libc::WIFSIGNALED(status) {
-            let signal = signal::Signal(libc::WTERMSIG(status));
-            tracing::debug!(?signal, pid, "process killed");
-
-            if signal == signal::SIGTERM {
-                self.set_finished();
-            } else {
-                self.set_crashed();
-            }
-        } else if libc::WIFEXITED(status) {
-            let code = libc::WEXITSTATUS(status);
-            tracing::debug!(code, pid, "process exited");
-            if code == 0 {
-                self.set_finished();
-            } else {
-                self.set_crashed();
-            }
-        } else if libc::WIFSTOPPED(status) {
-            tracing::debug!(pid, "process stopped");
-            self.set_stopped();
-        } else if libc::WIFCONTINUED(status) {
-            tracing::debug!(pid, "process continued");
-            self.set_running(pid);
-        }
-    }
-
+    /// Set service as [Status::Crashed]
+    ///
+    /// Must be called from [Monitor]
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn set_crashed(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_crashed();
     }
 
+    /// Set service as [Status::Finished]
+    ///
+    /// Must be called from [Monitor]
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn set_finished(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_finished();
     }
 
+    /// Set service as [Status::Stopped]
+    ///
+    /// Must be called from [Monitor]
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn set_stopped(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_stopped();
     }
 
+    /// Set service as [Status::Running]
+    ///
+    /// Must be called from [Monitor]
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
     pub fn set_running(&self, pid: libc::pid_t) {
         let mut guard = self._info.lock().unwrap();
@@ -255,6 +278,7 @@ impl Default for Service {
             id: SERVICE_ID_INVALID,
             name: Default::default(),
             command: Default::default(),
+            schedule: Default::default(),
             _info: Default::default(),
             _stats: Default::default(),
         }
@@ -308,8 +332,14 @@ mod tests {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
         service.start();
-        let mon = Monitor::default();
+        let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
+
+        let join_handle = {
+            /* Monitor is handling dead processes */
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
 
         assert!(service.info().pid.is_some_and(|pid| pid > 0));
         assert_eq!(service.info().status, Status::Running);
@@ -322,6 +352,9 @@ mod tests {
         mon.on_sigchld();
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
+
+        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        join_handle.join().unwrap()?;
         Ok(())
     }
 

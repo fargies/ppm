@@ -62,6 +62,7 @@ impl Default for Sysinfo {
 impl Sysinfo {
     #[tracing::instrument(skip(self, monitor))]
     pub fn update(&mut self, monitor: &Monitor) {
+        tracing::info!("updating stats");
         self.fetch(&monitor.services);
         self.update_services(&monitor.services);
 
@@ -88,7 +89,7 @@ impl Sysinfo {
             uptime,
             ..Default::default()
         };
-        tracing::debug!(?stats.uptime, ?old.uptime);
+
         if let Some(interval) = stats.uptime.and_then(|new_uptime| {
             old.uptime
                 .map(|old_uptime| new_uptime.saturating_sub(old_uptime))
@@ -120,8 +121,8 @@ impl Sysinfo {
                     sysinfo::ProcessStatus::Run => srv.set_running(info.pid.unwrap()),
                     sysinfo::ProcessStatus::Sleep => srv.set_running(info.pid.unwrap()),
                     sysinfo::ProcessStatus::Stop => srv.set_stopped(),
-                    sysinfo::ProcessStatus::Zombie => srv.set_crashed(),
-                    sysinfo::ProcessStatus::Dead => srv.set_crashed(),
+                    sysinfo::ProcessStatus::Zombie => (/* [Monitor] will handle this */),
+                    sysinfo::ProcessStatus::Dead => (/* [Monitor] will handle this */),
                     _ => {}
                 }
 
@@ -137,7 +138,7 @@ impl Sysinfo {
                 }
 
                 if info.pid.is_some() {
-                    srv.set_crashed();
+                    tracing::warn!(pid = info.pid, "process looks dead");
                 }
             }
         }
@@ -180,7 +181,10 @@ impl Sysinfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::service::{Command, Status};
+    use crate::{
+        service::{Command, Status},
+        utils::signal::{self, Signal},
+    };
     use anyhow::Result;
     use serial_test::serial;
 
@@ -189,31 +193,36 @@ mod tests {
     #[test]
     #[serial(waitpid)] // raises SIGCHLD
     fn update() -> Result<()> {
-        let mon = Monitor::default();
+        let mon = Arc::new(Monitor::default());
         {
             let srv = Service::new("test", Command::new("sleep", ["300"]));
             srv.start();
             mon.services.insert(0, srv.into());
         }
 
+        let join_handle = {
+            /* Monitor is handling dead processes */
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+
         let mut sysinfo = Sysinfo::default();
         sysinfo.update(&mon);
         assert_eq!(2, sysinfo.pids.len());
         assert_eq!(2, sysinfo.system.processes().len());
         for service in &mon.services {
-            let pid = service.info().pid.expect("process should be running");
-            service.stop();
-            // fake a crash
-            service.set_running(pid);
+            service.stop(); /* stop should wait until process is handled by monitor */
         }
 
         sysinfo.update(&mon);
         assert_eq!(1, sysinfo.pids.len());
         assert_eq!(1, sysinfo.system.processes().len());
         for service in &mon.services {
-            assert_eq!(Status::Crashed, service.info().status);
+            assert_eq!(Status::Finished, service.info().status);
         }
 
+        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        join_handle.join().unwrap()?;
         Ok(())
     }
 }
