@@ -30,3 +30,9 @@ services:
   name: crash
   command:
     path: false
+- id: 5
+  name: periodic
+  command:
+   path: echo
+   args: [ world ]
+  schedule: "*/15 * * * * *"

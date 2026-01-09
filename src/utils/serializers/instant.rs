@@ -42,11 +42,21 @@ fn update_ref_instant() {
 
 pub fn from_systime(systime: &SystemTime) -> Instant {
     if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
-        let duration = systime
-            .duration_since(ref_instant.1)
-            .unwrap_or(Duration::ZERO);
-        if duration <= MAX_REF_AGE {
-            return ref_instant.0.checked_add(duration).unwrap();
+        if &ref_instant.1 >= systime {
+            let duration = ref_instant
+                .1
+                .duration_since(*systime)
+                .unwrap_or(Duration::ZERO);
+            if duration <= MAX_REF_AGE {
+                return ref_instant.0.checked_sub(duration).unwrap();
+            }
+        } else {
+            let duration = systime
+                .duration_since(ref_instant.1)
+                .unwrap_or(Duration::ZERO);
+            if duration <= MAX_REF_AGE {
+                return ref_instant.0.checked_add(duration).unwrap();
+            }
         }
     }
     update_ref_instant();
@@ -55,9 +65,16 @@ pub fn from_systime(systime: &SystemTime) -> Instant {
 
 pub fn to_systime(instant: &Instant) -> SystemTime {
     if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
-        let duration = instant.duration_since(ref_instant.0);
-        if duration <= MAX_REF_AGE {
-            return ref_instant.1.checked_add(duration).unwrap();
+        if &ref_instant.0 >= instant {
+            let duration = ref_instant.0.duration_since(*instant);
+            if duration <= MAX_REF_AGE {
+                return ref_instant.1.checked_sub(duration).unwrap();
+            }
+        } else {
+            let duration = instant.duration_since(ref_instant.0);
+            if duration <= MAX_REF_AGE {
+                return ref_instant.1.checked_add(duration).unwrap();
+            }
         }
     }
     update_ref_instant();
@@ -85,10 +102,7 @@ pub mod option {
     where
         S: Serializer,
     {
-        humantime_serde::serialize(
-            &instant.as_ref().map(to_systime),
-            serializer,
-        )
+        humantime_serde::serialize(&instant.as_ref().map(to_systime), serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Instant>, D::Error>
@@ -102,6 +116,19 @@ pub mod option {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use anyhow::Result;
+
     #[test]
-    fn serde() {}
+    fn serde() -> Result<()> {
+        let now = Instant::now();
+        let systime = to_systime(&now);
+        std::thread::sleep(Duration::from_millis(10));
+        update_ref_instant();
+        assert_eq!(
+            systime.elapsed()?.as_millis(),
+            to_systime(&now).elapsed()?.as_millis()
+        );
+        Ok(())
+    }
 }

@@ -26,10 +26,11 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use crate::{
+    monitor::scheduler::SchedulerEvent,
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
@@ -40,13 +41,20 @@ use crate::{
 mod sysinfo;
 use sysinfo::Sysinfo;
 
+pub mod scheduler;
+use scheduler::Scheduler;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Monitor {
     #[serde(with = "humantime_serde")]
-    pub interval: std::time::Duration,
+    pub stats_interval: std::time::Duration,
+    #[serde(with = "humantime_serde")]
+    pub restart_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
+    #[serde(skip)]
+    pub scheduler: Scheduler,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
@@ -58,8 +66,10 @@ pub struct Monitor {
 impl Default for Monitor {
     fn default() -> Self {
         Self {
-            interval: std::time::Duration::from_secs(1),
+            stats_interval: Duration::from_secs(10),
+            restart_interval: Duration::from_secs(1),
             services: Default::default(),
+            scheduler: Default::default(),
             sysinfo: Default::default(),
             _stats: Default::default(),
             start_time: Instant::now(),
@@ -76,35 +86,67 @@ impl Monitor {
     fn waitpid(&self, pid: libc::pid_t) {
         while let Some((pid, status)) = utils::waitpid(pid) {
             if let Some(service) = self.find_by_pid(pid) {
-                service.on_waitpid(pid, status);
+                if libc::WIFSIGNALED(status) {
+                    let signal = signal::Signal(libc::WTERMSIG(status));
+
+                    if signal == signal::SIGTERM {
+                        service.set_finished();
+                    } else {
+                        service.set_crashed();
+                    }
+                } else if libc::WIFEXITED(status) {
+                    let code = libc::WEXITSTATUS(status);
+
+                    if code == 0 {
+                        service.set_finished();
+                    } else {
+                        service.set_crashed();
+                    }
+                } else if libc::WIFSTOPPED(status) {
+                    service.set_stopped();
+                } else if libc::WIFCONTINUED(status) {
+                    service.set_running(pid);
+                }
+
+                if let Status::Crashed = service.info().status {
+                    self.scheduler.schedule_restart(&service, self);
+                }
+            } else {
+                tracing::warn!(pid, "unknown process");
             }
         }
     }
 
-    fn next_restart(&self, info: &Info) -> Option<std::time::Instant> {
-        info.end_time
-            .map(|d| d + self.interval * (1 << (info.restarts - 1)))
+    fn next_restart(&self, info: &Info) -> Instant {
+        info.end_time.unwrap_or_else(Instant::now)
+            + self.restart_interval * (1 << (info.crashed - 1))
     }
 
     #[tracing::instrument(skip(self))]
     pub fn process(&self) {
-        let now = std::time::Instant::now();
-
-        for srv in self.services.iter() {
-            let info = srv.info();
-
-            tracing::trace!(
-                active = info.active,
-                status = ?info.status,
-                pid = ?info.pid,
-                name = srv.name,
-                "processing"
-            );
-            if info.status == Status::Crashed
-                && info.active
-                && self.next_restart(&info).is_some_and(|next| next <= now)
-            {
-                srv.restart();
+        for event in self.scheduler.iter() {
+            match event {
+                SchedulerEvent::ServiceSchedule { id, date_time, .. } => {
+                    if let Some(service) = self.get(&id) {
+                        service.restart();
+                        self.scheduler.reschedule(&service, Some(date_time));
+                    } else {
+                        tracing::warn!(id, "unknown service");
+                    }
+                }
+                SchedulerEvent::ServiceRestart { id, .. } => {
+                    if let Some(service) = self.get(&id) {
+                        service.restart();
+                    } else {
+                        tracing::warn!(id, "unknown service");
+                    }
+                }
+                SchedulerEvent::Sysinfo { instant } => {
+                    self.sysinfo.lock().unwrap().update(self);
+                    self.scheduler.enqueue(SchedulerEvent::Sysinfo {
+                        instant: instant + self.stats_interval,
+                    });
+                }
             }
         }
     }
@@ -114,6 +156,7 @@ impl Monitor {
             + signal::SIGALRM
             + signal::SIGCHLD
             + signal::SIGTERM
+            + signal::SIGHUP
             + signal::SIGINT;
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
@@ -129,21 +172,31 @@ impl Monitor {
             }
         }
 
-        let timer = Timer::new(self.interval, true);
+        self.scheduler.init(self);
+        let mut timer = Timer::new(Duration::from_millis(1), false);
         timer.start()?;
+
         loop {
             let _span = tracing::info_span!(parent: None, "monitor").entered();
 
-            self.process();
+            if let Some(duration) = self.scheduler.peek() {
+                tracing::debug!(?duration, "sleeping for");
+                timer.set_duration(duration.max(Duration::from_millis(1)));
+                timer.start()?;
+            }
 
             match sigset.wait()? {
                 signal::SIGALRM => {
-                    tracing::trace!("timer expired");
-                    self.sysinfo.lock().unwrap().update(self);
+                    tracing::trace!("processing events");
+                    self.process();
+                }
+                signal::SIGHUP => {
+                    tracing::info!("refreshing scheduler");
+                    self.scheduler.init(self);
                 }
                 signal::SIGCHLD => self.on_sigchld(),
-                sig @ (signal::SIGTERM | signal::SIGINT) => {
-                    tracing::info!("termination requested ({:?})", sig);
+                signal @ (signal::SIGTERM | signal::SIGINT) => {
+                    tracing::info!("termination requested ({:?})", signal);
                     return Ok(());
                 }
                 signal => {
@@ -168,15 +221,22 @@ impl Monitor {
             .map(|x| Arc::clone(&x))
     }
 
-    pub fn get(&self, id: ServiceId) -> Option<Arc<Service>> {
-        self.services.get(&id).map(|x| Arc::clone(&x))
+    pub fn get(&self, id: &ServiceId) -> Option<Arc<Service>> {
+        self.services.get(id).map(|x| Arc::clone(&x))
     }
 
     pub fn insert(&self, service: Service) -> Arc<Service> {
         let id = service.id;
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
+        self.scheduler.reschedule(&service, None);
         service
+    }
+
+    pub fn remove(&self, service: &ServiceId) {
+        self.services.remove(service);
+        /* don't wake, worst case there'll be a spurious wakeup */
+        self.scheduler.remove(service);
     }
 
     pub fn stats(&self) -> Arc<Stats> {
@@ -271,7 +331,7 @@ mod tests {
             Some(pid) => Signal::kill(pid, signal::SIGKILL)?,
             None => panic!("process not started"),
         };
-        std::thread::sleep(mon.interval * 2);
+        std::thread::sleep(mon.restart_interval * 2);
         assert_ne!(1, service.info().restarts);
 
         Signal::kill(signal::getpid(), signal::SIGTERM)?;
@@ -283,7 +343,7 @@ mod tests {
     #[serial(waitpid)]
     fn run() -> Result<()> {
         let mon = Arc::new(Monitor {
-            interval: std::time::Duration::from_millis(100),
+            stats_interval: std::time::Duration::from_millis(100),
             ..Default::default()
         });
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
@@ -305,7 +365,7 @@ mod tests {
     #[serial(waitpid)]
     fn stopped() -> Result<()> {
         let mon = Arc::new(Monitor {
-            interval: std::time::Duration::from_millis(250),
+            stats_interval: std::time::Duration::from_millis(250),
             ..Default::default()
         });
         let service = mon.insert(Service::new("test_stopped", Command::new("sleep", ["300"])));
@@ -324,7 +384,7 @@ mod tests {
         assert_eq!(service.info().status, Status::Stopped);
 
         Signal::kill(info.pid.unwrap(), signal::Signal(libc::SIGCONT))?;
-        std::thread::sleep(mon.interval * 2);
+        std::thread::sleep(mon.stats_interval * 2);
 
         assert_eq!(service.info().status, Status::Running);
 

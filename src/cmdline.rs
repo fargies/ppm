@@ -84,6 +84,8 @@ pub enum Action {
     /// Used by `statistics` command from cli
     #[command(skip)]
     DaemonStats,
+    /// Get scheduler info
+    ShowScheduler,
 }
 
 fn parse_key_val<T, U>(

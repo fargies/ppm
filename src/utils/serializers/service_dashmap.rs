@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use dashmap::DashMap;
 use serde::{
@@ -31,7 +31,7 @@ use serde::{
 
 use crate::{
     service::{SERVICE_ID_INVALID, Service, ServiceId},
-    utils::serde_utils::{InnerRef, wrap_iterator},
+    utils::serde_utils::{InnerRef, wrap_seq_iterator},
 };
 
 type ServiceMap = DashMap<ServiceId, Arc<Service>>;
@@ -40,7 +40,13 @@ pub fn serialize<S>(services: &ServiceMap, serializer: S) -> Result<S::Ok, S::Er
 where
     S: Serializer,
 {
-    wrap_iterator(services.iter().map(|it| InnerRef(it, |r| r.value()))).serialize(serializer)
+    /* we want it ordered, let's first iter on Ids */
+    let keys: BTreeSet<ServiceId> = services.iter().map(|it| *it.key()).collect();
+    wrap_seq_iterator(
+        keys.iter()
+            .filter_map(|key| services.get(key).map(|it| InnerRef(it, |r| r.value()))),
+    )
+    .serialize(serializer)
 }
 
 pub fn deserialize<'de, D>(deserializer: D) -> Result<ServiceMap, D::Error>

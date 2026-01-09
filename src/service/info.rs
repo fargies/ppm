@@ -55,8 +55,11 @@ pub struct Info {
     #[tabled(display("info_duration_str", self), rename = "uptime")]
     pub end_time: Option<Instant>,
     #[serde(default)]
-    #[tabled(rename = "↺")]
+    #[tabled(rename = "\u{21BA}")]
     pub restarts: usize,
+    #[serde(default)]
+    #[tabled(rename = "\u{2620}")]
+    pub crashed: usize,
 }
 
 impl Default for Info {
@@ -68,6 +71,7 @@ impl Default for Info {
             start_time: None,
             end_time: None,
             restarts: 0,
+            crashed: 0,
         }
     }
 }
@@ -134,6 +138,7 @@ impl Info {
                 tracing::warn!("{:?} -> {:?}", self.status, Status::Crashed);
                 self.pid = None;
                 self.status = Status::Crashed;
+                self.crashed += 1;
                 self.end_time = Some(std::time::Instant::now());
             }
             Status::Crashed => {}

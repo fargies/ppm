@@ -52,6 +52,7 @@ pub const SIGTERM: Signal = Signal(libc::SIGTERM);
 pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
 pub const SIGINT: Signal = Signal(libc::SIGINT);
+pub const SIGHUP: Signal = Signal(libc::SIGHUP);
 
 static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     SignalSet(unsafe {
@@ -83,6 +84,10 @@ impl Signal {
         unsafe { libc_check(libc::kill(pid, *signal.into())) }
     }
 
+    pub fn exists(pid: libc::pid_t) -> bool {
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
     #[tracing::instrument(level = "TRACE", err)]
     pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> Result<()>
     where
@@ -110,6 +115,7 @@ impl Debug for Signal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // f.write_str("Signal(")?;
         match self.0 {
+            libc::SIGHUP => f.write_str("SIGHUP"),
             libc::SIGALRM => f.write_str("SIGALRM"),
             libc::SIGCHLD => f.write_str("SIGCHLD"),
             libc::SIGTERM => f.write_str("SIGTERM"),

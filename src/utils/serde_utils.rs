@@ -44,7 +44,7 @@ where
 }
 
 /// Convenience function to serialize a seq iterator
-pub fn wrap_iterator<I, P>(i: I) -> SeqWrapper<I>
+pub fn wrap_seq_iterator<I, P>(i: I) -> SeqWrapper<I>
 where
     I: IntoIterator<Item = P>,
 {

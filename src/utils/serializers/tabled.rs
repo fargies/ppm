@@ -83,3 +83,12 @@ where
         self.as_ref().map_or_else(String::new, |t| t.to_string())
     }
 }
+
+impl<T> TDisplay for &T
+where
+    T: TDisplay,
+{
+    fn to_string(&self) -> String {
+        (*self).to_string()
+    }
+}
