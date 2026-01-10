@@ -66,6 +66,7 @@ pub fn check_ref_time() -> bool {
     }
 }
 
+/// Convert [SystemTime] to [Instant] using a reference time-point
 pub fn from_systime(systime: &SystemTime) -> Instant {
     let ref_instant = *REF_INSTANT.read().unwrap();
     let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
@@ -83,6 +84,7 @@ pub fn from_systime(systime: &SystemTime) -> Instant {
     }
 }
 
+/// Convert [Instant] to [SystemTime] using a reference time-point
 pub fn to_systime(instant: &Instant) -> SystemTime {
     let ref_instant = *REF_INSTANT.read().unwrap();
     let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
@@ -95,6 +97,9 @@ pub fn to_systime(instant: &Instant) -> SystemTime {
     }
 }
 
+/// Serializer for [Instant]
+///
+/// add `#[serde(with=utils::serializers::instant)]` to use this module
 pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -102,6 +107,7 @@ where
     humantime_serde::serialize(&to_systime(instant), serializer)
 }
 
+/// Deserializer for [Instant]
 pub fn deserialize<'de, D>(deserializer: D) -> Result<Instant, D::Error>
 where
     D: Deserializer<'de>,
@@ -112,6 +118,7 @@ where
 pub mod option {
     use super::*;
 
+    /// Option serializer for [Instant]
     pub fn serialize<S>(instant: &Option<Instant>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -119,6 +126,7 @@ pub mod option {
         humantime_serde::serialize(&instant.as_ref().map(to_systime), serializer)
     }
 
+    /// Option deserializer for [Instant]
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Instant>, D::Error>
     where
         D: Deserializer<'de>,

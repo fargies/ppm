@@ -1,20 +1,28 @@
 # PPM
 
-**PPM** (**P**artner **P**rocess **M**onitor) is a process-monitoring application designed to run and supervise processes inside [Docker](https://www.docker.com/) containers.
+**PPM** (**P**artner **P**rocess **M**onitor) is a process-monitoring application
+designed to run and supervise processes inside [Docker](https://www.docker.com/)
+containers.
 
-It aims to be **low-overhead** and **low-footprint**, with ease of use as a core principle, while still offering optional advanced features such as:
+It aims to be **low-overhead** and **low-footprint**, with ease of use as a core
+principle, while still offering optional advanced features such as:
 
-* Resource usage reporting
-* Cron support
-* Other monitoring utilities
+- Resource usage reporting
+- Cron support
+- Other monitoring utilities
 
 ## Why “PPM”?
 
-**PPM** stands for **P**artner **P**rocess **M**onitor. *Partner* refers to a personal suite of tools and utilities used to scan and monitor networks, desktops, files, and more, written in different programming languages.
+**PPM** stands for **P**artner **P**rocess **M**onitor. _Partner_ refers to a
+personal suite of tools and utilities used to scan and monitor networks, desktops,
+files, and more, written in different programming languages.
 
-After evaluating existing solutions—most notably [pm2](https://pm2.keymetrics.io), which is written in [Node.js](https://nodejs.org), as well as alternatives like [pmc](https://pmc.dev)—none fully matched my requirements.
+After evaluating existing solutions—most notably [pm2](https://pm2.keymetrics.io),
+which is written in [Node.js](https://nodejs.org), as well as alternatives like
+[pmc](https://pmc.dev)—none fully matched my requirements.
 
-As a result, I decided to build a **minimalist yet feature-rich process monitoring tool** in [Rust](https://www.rust-lang.org).
+As a result, I decided to build a **minimalist yet feature-rich process monitoring tool**
+in [Rust](https://www.rust-lang.org).
 
 ## Getting Started
 
@@ -26,9 +34,9 @@ As a result, I decided to build a **minimalist yet feature-rich process monitori
 
 A configuration file can be created in any of the following locations:
 
-* `~/.config/partner/partner-pm.yml`
-* `~/.partner-pm.yml`
-* `.partner-pm.yml`
+- `~/.config/partner/partner-pm.yml`
+- `~/.partner-pm.yml`
+- `.partner-pm.yml`
 
 Alternatively, you can specify a custom configuration file:
 
@@ -73,21 +81,23 @@ ppm show-configuration > ~/.partner-pm.yml
 
 ### Service Status
 
-**PPM** spawns and monitors *services*, each of which can be in one of the following states:
+**PPM** spawns and monitors _services_, each of which can be in one of the following states:
 
-* **Created**
+- **Created**
   Temporary state; the daemon has not yet handled the newly created service.
 
-* **Running**
+- **Running**
   The service is live and executing.
 
-* **Finished**
+- **Finished**
   The service has terminated normally with exit code `0`, or received a `SIGTERM`.
 
-* **Stopped**
+- **Stopped**
   The service is paused after receiving a `SIGSTP`.
 
-* **Crashed**
-  The service terminated with a non-zero exit code, or received a signal other than `SIGTERM`.
+- **Crashed**
+  The service terminated with a non-zero exit code, or received a signal other
+  than `SIGTERM`.
 
-When a service enters the **Crashed** state, it is automatically restarted by the daemon using an exponential backoff strategy: `interval * (2^(nb_restart - 1))`
+When a service enters the **Crashed** state, it is automatically restarted by
+the daemon using an exponential backoff strategy: `interval * (2^(nb_restart - 1))`
