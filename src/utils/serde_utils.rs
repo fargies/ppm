@@ -21,6 +21,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Serialize, Serializer, de::DeserializeOwned};
 use std::{
