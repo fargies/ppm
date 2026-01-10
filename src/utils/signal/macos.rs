@@ -21,9 +21,11 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+#![allow(dead_code)]
+
 use anyhow::Result;
-use std::{ops::Deref, os::raw::c_void};
 use std::time::Duration;
+use std::{ops::Deref, os::raw::c_void};
 
 use super::libc_check;
 use dispatchr::{QoS, queue, source, time::Time};
@@ -39,7 +41,12 @@ impl Default for Timer {
         let queue = queue::global(QoS::Default).unwrap();
         let tid = unsafe { libc::pthread_self() };
         let source = source::Managed::create(source::dispatch_source_type_t::timer(), 0, 0, queue);
-        unsafe { dispatch_set_context(source.deref() as *const _ as *const c_void, tid as *mut c_void); }
+        unsafe {
+            dispatch_set_context(
+                source.deref() as *const _ as *const c_void,
+                tid as *mut c_void,
+            );
+        }
         source.set_event_handler_f(dispatch_function);
         tracing::trace!(tid, "timer created");
         Self {
