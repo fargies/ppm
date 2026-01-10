@@ -28,6 +28,8 @@ pub use serde_utils::{InnerRef, LoadFromFile, wrap_map_iterator};
 
 pub mod signal;
 
+pub mod libc;
+
 pub mod serializers;
 
 mod lazy_bool;
@@ -39,12 +41,7 @@ pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
     )
 });
 
-pub fn waitpid(pid: libc::pid_t) -> Option<(libc::pid_t, libc::c_int)> {
-    let mut status: libc::c_int = 0;
-    let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG | libc::WUNTRACED) };
-    if ret > 0 { Some((ret, status)) } else { None }
-}
-
+/// Call the provided callback on drop
 pub struct OnDrop<T>(Option<T>)
 where
     T: FnOnce();

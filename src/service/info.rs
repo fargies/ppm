@@ -80,7 +80,7 @@ impl Info {
     pub fn set_running(&mut self, pid: libc::pid_t) {
         match self.status {
             Status::Created | Status::Finished | Status::Crashed => {
-                tracing::info!("{:?} -> {:?}", self.status, Status::Running);
+                tracing::info!(pid, "{:?} -> {:?}", self.status, Status::Running);
                 self.pid = Some(pid);
                 self.start_time = Some(std::time::Instant::now());
                 self.restarts += 1;
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn serde() {
-        let data = "active: true\nstatus: Created\nrestarts: 0\n";
+        let data = "active: true\nstatus: Created\nrestarts: 0\ncrashed: 0\n";
         let info = Info::default();
         assert_eq!(data, serde_yaml_ng::to_string(&info).unwrap());
         assert_eq!(serde_yaml_ng::from_str::<Info>(data).unwrap(), info);

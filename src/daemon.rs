@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         // created arena).
         //
         // See man (3) mallopt
-       libc::mallopt(libc::M_ARENA_MAX, 1);
+        libc::mallopt(libc::M_ARENA_MAX, 1);
     }
     Registry::default()
         .with(

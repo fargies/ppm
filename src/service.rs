@@ -31,11 +31,7 @@ use std::sync::{
 };
 use std::{os::unix::process::CommandExt, time::Duration};
 
-use crate::monitor::Monitor;
-use crate::utils::{
-    self,
-    signal::{self, Signal, SignalSet},
-};
+use crate::utils::signal::{self, SIGTERM, Signal, SignalSet};
 
 mod command;
 pub use command::Command;
@@ -149,6 +145,11 @@ impl Service {
                 SignalSet::full()
                     .restore()
                     .expect("failed to restore default signal handlers");
+                #[cfg(target_os = "linux")]
+                if let Err(err) = Signal::set_pdeath_sig(SIGTERM) {
+                    tracing::error!(?err, "failed to set pdeath signal");
+                }
+
                 let mut cmd = process::Command::new(self.command.path.as_str());
                 cmd.args(&self.command.args)
                     .stdin(process::Stdio::null())
@@ -287,9 +288,17 @@ impl Default for Service {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs::File,
+        io::{Read, Seek, Write},
+    };
+
     use crate::{
         monitor::Monitor,
-        utils::signal::{SIGALRM, SIGCHLD, SIGTERM},
+        utils::{
+            libc::{getpid, waitpid},
+            signal::{SIGALRM, SIGCHLD, SIGTERM},
+        },
     };
 
     use super::*;
@@ -353,7 +362,7 @@ mod tests {
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
 
-        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
@@ -366,5 +375,57 @@ mod tests {
             serde_yaml_ng::from_str::<Service>(&data).unwrap().command,
             srv.command
         );
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    /// Run this test with `-- --no-capture` to see messages from child
+    fn child_kill_subreap() -> Result<()> {
+        let mut fd = File::options()
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(std::env::temp_dir().join("ppm_test_child_death.txt"))?;
+
+        Monitor::init();
+
+        match unsafe { libc::fork() } {
+            x if x < 0 => panic!("failed to fork"),
+            0 => {
+                let service = Service::new(
+                    "test",
+                    Command::new("sh", ["-c", "trap 'child died' EXIT; sleep 300"]),
+                );
+                /* fork/exec */
+                service.restart();
+                write!(fd, "{}", service.info().pid.expect("should have spawned"))
+                    .expect("failed to write");
+                drop(fd);
+                /* wait for process to actually setup death-sig before dying */
+                std::thread::sleep(Duration::from_millis(150));
+                std::process::exit(0);
+            }
+            pid => {
+                let (ret, _) = waitpid(pid, true).expect("should have resolved");
+                assert_eq!(pid, ret);
+
+                fd.rewind()?;
+                let child_pid = {
+                    let mut buf = String::new();
+                    fd.read_to_string(&mut buf)?;
+                    drop(fd);
+                    buf.parse::<libc::pid_t>()?
+                };
+                assert_ne!(0, child_pid);
+                std::thread::sleep(Duration::from_millis(100));
+                while let Some((pid, _)) = waitpid(-1, false) {
+                    /* this should happen if current process has correctly been set as a subreaper */
+                    tracing::info!(pid, "collected");
+                }
+                /* init should release the process, and it should receive SIGKILL on Linux */
+                assert_eq!(-1, unsafe { libc::kill(child_pid, 0) });
+            }
+        }
+        Ok(())
     }
 }

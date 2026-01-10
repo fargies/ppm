@@ -32,53 +32,67 @@ use humantime_serde;
 use serde::{Deserializer, Serializer};
 
 static REF_INSTANT: RwLock<Option<(Instant, SystemTime)>> = RwLock::new(None);
-const MAX_REF_AGE: Duration = Duration::from_hours(1);
+const MAX_DRIFT: Duration = Duration::from_millis(10);
 
 #[tracing::instrument()]
-fn update_ref_instant() {
+fn update_ref_instant() -> (Instant, SystemTime) {
     tracing::info!("updating time reference");
-    *REF_INSTANT.write().unwrap() = Some((Instant::now(), SystemTime::now()));
+    let ref_time = (Instant::now(), SystemTime::now());
+    *REF_INSTANT.write().unwrap() = Some(ref_time);
+    ref_time
+}
+
+/// Check reference instant/systime drift
+///
+/// returns false if reference time was updated
+pub fn check_ref_time() -> bool {
+    let (check_instant, check_time) = (Instant::now(), SystemTime::now());
+    let converted_instant = from_systime(&check_time);
+
+    let drift = if converted_instant >= check_instant {
+        converted_instant.duration_since(check_instant)
+    } else {
+        check_instant.duration_since(converted_instant)
+    };
+    if drift >= MAX_DRIFT {
+        tracing::warn!(
+            drift = humantime::format_duration(drift).to_string(),
+            "clock drift detected"
+        );
+        update_ref_instant();
+        false
+    } else {
+        true
+    }
 }
 
 pub fn from_systime(systime: &SystemTime) -> Instant {
-    if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
-        if &ref_instant.1 >= systime {
-            let duration = ref_instant
-                .1
-                .duration_since(*systime)
-                .unwrap_or(Duration::ZERO);
-            if duration <= MAX_REF_AGE {
-                return ref_instant.0.checked_sub(duration).unwrap();
-            }
-        } else {
-            let duration = systime
-                .duration_since(ref_instant.1)
-                .unwrap_or(Duration::ZERO);
-            if duration <= MAX_REF_AGE {
-                return ref_instant.0.checked_add(duration).unwrap();
-            }
-        }
+    let ref_instant = *REF_INSTANT.read().unwrap();
+    let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
+    if &ref_instant.1 >= systime {
+        let duration = ref_instant
+            .1
+            .duration_since(*systime)
+            .unwrap_or(Duration::ZERO);
+        ref_instant.0.checked_sub(duration).unwrap()
+    } else {
+        let duration = systime
+            .duration_since(ref_instant.1)
+            .unwrap_or(Duration::ZERO);
+        ref_instant.0.checked_add(duration).unwrap()
     }
-    update_ref_instant();
-    from_systime(systime)
 }
 
 pub fn to_systime(instant: &Instant) -> SystemTime {
-    if let Some(ref_instant) = *REF_INSTANT.read().unwrap() {
-        if &ref_instant.0 >= instant {
-            let duration = ref_instant.0.duration_since(*instant);
-            if duration <= MAX_REF_AGE {
-                return ref_instant.1.checked_sub(duration).unwrap();
-            }
-        } else {
-            let duration = instant.duration_since(ref_instant.0);
-            if duration <= MAX_REF_AGE {
-                return ref_instant.1.checked_add(duration).unwrap();
-            }
-        }
+    let ref_instant = *REF_INSTANT.read().unwrap();
+    let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
+    if &ref_instant.0 >= instant {
+        let duration = ref_instant.0.duration_since(*instant);
+        ref_instant.1.checked_sub(duration).unwrap()
+    } else {
+        let duration = instant.duration_since(ref_instant.0);
+        ref_instant.1.checked_add(duration).unwrap()
     }
-    update_ref_instant();
-    to_systime(instant)
 }
 
 pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
