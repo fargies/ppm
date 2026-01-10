@@ -60,6 +60,10 @@ pub enum SchedulerEvent {
         #[serde(with = "serializers::instant")]
         instant: Instant,
     },
+    ClockCheck {
+        #[serde(with = "serializers::instant")]
+        instant: Instant,
+    },
 }
 
 impl SchedulerEvent {
@@ -67,19 +71,19 @@ impl SchedulerEvent {
         match self {
             SchedulerEvent::ServiceSchedule { id, .. }
             | SchedulerEvent::ServiceRestart { id, .. } => Some(*id),
-            SchedulerEvent::Sysinfo { .. } => None,
+            _ => None,
         }
     }
 
     pub fn instant(&self) -> &Instant {
         match self {
-            SchedulerEvent::ServiceSchedule {
+            Self::ServiceSchedule {
                 instant: schedule, ..
             } => schedule,
-            SchedulerEvent::ServiceRestart {
+            Self::ServiceRestart {
                 instant: schedule, ..
             } => schedule,
-            SchedulerEvent::Sysinfo { instant: schedule } => schedule,
+            Self::Sysinfo { instant } | Self::ClockCheck { instant } => instant,
         }
     }
 }
@@ -87,11 +91,7 @@ impl SchedulerEvent {
 impl Ord for SchedulerEvent {
     /// the lower the Instant the higher the priority
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.instant().cmp(other.instant()) {
-            Ordering::Less => Ordering::Greater,
-            Ordering::Equal => Ordering::Equal,
-            Ordering::Greater => Ordering::Less,
-        }
+        self.instant().cmp(other.instant()).reverse()
     }
 }
 
@@ -118,6 +118,9 @@ impl Scheduler {
         }
         self.queue().push(SchedulerEvent::Sysinfo {
             instant: Instant::now() + monitor.stats_interval,
+        });
+        self.queue().push(SchedulerEvent::ClockCheck {
+            instant: Instant::now() + monitor.clock_check_interval,
         });
     }
 
@@ -182,7 +185,10 @@ impl Scheduler {
     }
 
     pub fn dump(&self) -> Vec<SchedulerEvent> {
-        self.queue().iter().cloned().collect()
+        let mut ret: Vec<_> = self.queue().iter().cloned().collect();
+        /* BTreeMap iteration is random order */
+        ret.sort_unstable_by(|x, y| y.cmp(x));
+        ret
     }
 }
 

@@ -41,6 +41,8 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::Timer;
 
+use super::libc::{check as libc_check, getpid, gettid};
+
 /// POSIX Signal wrapper
 #[derive(Clone, Copy, PartialEq)]
 pub struct Signal(pub libc::c_int);
@@ -67,14 +69,6 @@ static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     })
 });
 
-pub fn gettid() -> libc::pthread_t {
-    unsafe { libc::pthread_self() }
-}
-
-pub fn getpid() -> libc::pid_t {
-    unsafe { libc::getpid() }
-}
-
 impl Signal {
     #[tracing::instrument(level = "TRACE", err)]
     pub fn kill<S>(pid: libc::pid_t, signal: S) -> Result<()>
@@ -86,6 +80,15 @@ impl Signal {
 
     pub fn exists(pid: libc::pid_t) -> bool {
         unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tracing::instrument(level = "TRACE", err)]
+    pub fn set_pdeath_sig<S>(signal: S) -> Result<()>
+    where
+        S: Into<Signal> + Debug,
+    {
+        libc_check(unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, *signal.into()) })
     }
 
     #[tracing::instrument(level = "TRACE", err)]
@@ -131,17 +134,6 @@ impl Debug for Signal {
 impl From<libc::c_int> for Signal {
     fn from(value: libc::c_int) -> Self {
         Signal(value)
-    }
-}
-
-/// assert for libc functions
-fn libc_check(res: libc::c_int) -> Result<()> {
-    if res != 0 {
-        let err = std::io::Error::last_os_error();
-        tracing::trace_span!("libc_check", ?err);
-        Err(err.into())
-    } else {
-        Ok(())
     }
 }
 
@@ -321,6 +313,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::utils::libc::getpid;
     use anyhow::Result;
 
     #[ctor::ctor]
@@ -360,10 +353,7 @@ mod tests {
             sig.set_handler(blocked_sighandler as usize)?;
         }
 
-        unsafe {
-            libc::pthread_kill(libc::pthread_self(), libc::SIGALRM);
-        }
-        // Signal::kill(unsafe { libc::getpid() }, SIGALRM)?;
+        Signal::kill(getpid(), SIGALRM)?;
         std::thread::sleep(Duration::from_millis(100));
 
         assert!(SignalSet::pending().contains(SIGALRM));

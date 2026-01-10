@@ -34,6 +34,8 @@ use crate::{
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
+        libc::{getpid, set_child_subreaper, setsid},
+        serializers::instant::check_ref_time,
         signal::{self, SignalSet, Timer},
     },
 };
@@ -51,6 +53,8 @@ pub struct Monitor {
     pub stats_interval: std::time::Duration,
     #[serde(with = "humantime_serde")]
     pub restart_interval: std::time::Duration,
+    #[serde(with = "humantime_serde")]
+    pub clock_check_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip)]
@@ -68,6 +72,7 @@ impl Default for Monitor {
         Self {
             stats_interval: Duration::from_secs(10),
             restart_interval: Duration::from_secs(1),
+            clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
             scheduler: Default::default(),
             sysinfo: Default::default(),
@@ -78,13 +83,26 @@ impl Default for Monitor {
 }
 
 impl Monitor {
+    #[tracing::instrument()]
+    pub fn init() {
+        if let Err(err) = setsid() {
+            tracing::error!(?err, "setsid failed");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(err) = set_child_subreaper(getpid()) {
+                tracing::error!(?err, "failed to set child-subreaper");
+            }
+        }
+    }
+
     #[tracing::instrument(skip(self))]
     pub fn on_sigchld(&self) {
         self.waitpid(-1);
     }
 
     fn waitpid(&self, pid: libc::pid_t) {
-        while let Some((pid, status)) = utils::waitpid(pid) {
+        while let Some((pid, status)) = utils::libc::waitpid(pid, false) {
             if let Some(service) = self.find_by_pid(pid) {
                 if libc::WIFSIGNALED(status) {
                     let signal = signal::Signal(libc::WTERMSIG(status));
@@ -145,6 +163,15 @@ impl Monitor {
                     self.sysinfo.lock().unwrap().update(self);
                     self.scheduler.enqueue(SchedulerEvent::Sysinfo {
                         instant: instant + self.stats_interval,
+                    });
+                }
+                SchedulerEvent::ClockCheck { instant } => {
+                    if !check_ref_time() {
+                        tracing::info!("refreshing scheduler");
+                        self.scheduler.init(self);
+                    }
+                    self.scheduler.enqueue(SchedulerEvent::ClockCheck {
+                        instant: instant + self.clock_check_interval,
                     });
                 }
             }
@@ -247,8 +274,8 @@ impl Monitor {
 extern "C" fn blocked_sighandler(sig: libc::c_int) {
     tracing::error!(
         sig,
-        pid = signal::getpid(),
-        tid = signal::gettid(),
+        pid = utils::libc::getpid(),
+        tid = utils::libc::gettid(),
         "blocked signal caught"
     );
     panic!("blocked signal caught: {}", sig);
@@ -334,7 +361,7 @@ mod tests {
         std::thread::sleep(mon.restart_interval * 2);
         assert_ne!(1, service.info().restarts);
 
-        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
@@ -353,7 +380,7 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(std::time::Duration::from_millis(300));
-        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
 
@@ -388,7 +415,7 @@ mod tests {
 
         assert_eq!(service.info().status, Status::Running);
 
-        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
         Ok(())

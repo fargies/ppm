@@ -30,7 +30,7 @@ use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
 use crate::{
     service::{Service, ServiceId, Stats},
-    utils,
+    utils::libc::getpid,
 };
 
 use super::Monitor;
@@ -66,10 +66,7 @@ impl Sysinfo {
         self.fetch(&monitor.services);
         self.update_services(&monitor.services);
 
-        if let Some(proc) = self
-            .system
-            .process(Pid::from(utils::signal::getpid() as usize))
-        {
+        if let Some(proc) = self.system.process(Pid::from(getpid() as usize)) {
             let mut stats = monitor._stats.lock().unwrap();
             *stats = Arc::new(self.make_stats(proc, &stats, Some(monitor.start_time.elapsed())));
         } else {
@@ -156,7 +153,7 @@ impl Sysinfo {
             self.pids.push(pid);
         }
 
-        let daemon_pid = Pid::from(utils::signal::getpid() as usize);
+        let daemon_pid = Pid::from(getpid() as usize);
         if !processes.contains_key(&daemon_pid) {
             self.pids.push(daemon_pid);
         }
@@ -183,7 +180,10 @@ impl Sysinfo {
 mod tests {
     use crate::{
         service::{Command, Status},
-        utils::signal::{self, Signal},
+        utils::{
+            libc::getpid,
+            signal::{self, Signal},
+        },
     };
     use anyhow::Result;
     use serial_test::serial;
@@ -221,7 +221,7 @@ mod tests {
             assert_eq!(Status::Finished, service.info().status);
         }
 
-        Signal::kill(signal::getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }

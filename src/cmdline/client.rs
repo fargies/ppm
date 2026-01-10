@@ -233,6 +233,7 @@ impl<'a> SchedulerEventRecord<'a> {
             SchedulerEvent::ServiceSchedule { .. } => "schedule",
             SchedulerEvent::ServiceRestart { .. } => "restart",
             SchedulerEvent::Sysinfo { .. } => "stats",
+            SchedulerEvent::ClockCheck { .. } => "clock check",
         }
         .into()
     }
