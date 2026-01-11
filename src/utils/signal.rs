@@ -336,6 +336,8 @@ mod tests {
     fn full_set() -> Result<()> {
         let sigset = SignalSet::full();
         sigset.block()?;
+        // may cause [blocked_signalhandler] to be spuriously invoked
+        let sigset = sigset - SIGALRM - SIGTERM - SIGCHLD;
         sigset.unblock()
     }
 
