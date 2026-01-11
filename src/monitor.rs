@@ -34,11 +34,14 @@ use crate::{
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
-        libc::{getpid, set_child_subreaper, setsid},
+        libc::{getpid, gettid, setsid, waitpid},
         serializers::instant::check_ref_time,
         signal::{self, SignalSet, Timer},
     },
 };
+
+#[cfg(target_os = "linux")]
+use crate::utils::libc::set_child_subreaper;
 
 mod sysinfo;
 use sysinfo::Sysinfo;
@@ -102,7 +105,7 @@ impl Monitor {
     }
 
     fn waitpid(&self, pid: libc::pid_t) {
-        while let Some((pid, status)) = utils::libc::waitpid(pid, false) {
+        while let Some((pid, status)) = waitpid(pid, false) {
             if let Some(service) = self.find_by_pid(pid) {
                 if libc::WIFSIGNALED(status) {
                     let signal = signal::Signal(libc::WTERMSIG(status));
@@ -272,12 +275,7 @@ impl Monitor {
 }
 
 extern "C" fn blocked_sighandler(sig: libc::c_int) {
-    tracing::error!(
-        sig,
-        pid = utils::libc::getpid(),
-        tid = utils::libc::gettid(),
-        "blocked signal caught"
-    );
+    tracing::error!(sig, pid = getpid(), tid = gettid(), "blocked signal caught");
     panic!("blocked signal caught: {}", sig);
 }
 
@@ -361,7 +359,7 @@ mod tests {
         std::thread::sleep(mon.restart_interval * 2);
         assert_ne!(1, service.info().restarts);
 
-        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
@@ -380,7 +378,7 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(std::time::Duration::from_millis(300));
-        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
 
@@ -415,7 +413,7 @@ mod tests {
 
         assert_eq!(service.info().status, Status::Running);
 
-        Signal::kill(utils::libc::getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), signal::SIGTERM)?;
 
         join_handle.join().unwrap()?;
         Ok(())

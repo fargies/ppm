@@ -353,7 +353,12 @@ mod tests {
             sig.set_handler(blocked_sighandler as usize)?;
         }
 
+        #[cfg(target_os = "linux")]
         Signal::kill(getpid(), SIGALRM)?;
+
+        // for some reason macos doesn't react to simple "kill"
+        #[cfg(target_os = "macos")]
+        Signal::kill_thread(gettid(), SIGALRM)?;
         std::thread::sleep(Duration::from_millis(100));
 
         assert!(SignalSet::pending().contains(SIGALRM));

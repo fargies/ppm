@@ -41,31 +41,6 @@ pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
     )
 });
 
-/// Call the provided callback on drop
-#[tracing::instrument(level = "TRACE", ret)]
-pub fn terminate(pid: libc::pid_t, signal: libc::c_int, timeout: std::time::Duration) -> bool {
-    unsafe {
-        libc::kill(pid, signal);
-    }
-
-    let start = std::time::Instant::now();
-    loop {
-        if waitpid(pid).is_some() {
-            return true;
-        } else if start.elapsed() < timeout {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        } else {
-            return false;
-        }
-    }
-}
-
-pub fn waitpid(pid: libc::pid_t) -> Option<(libc::pid_t, libc::c_int)> {
-    let mut status: libc::c_int = 0;
-    let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG | libc::WUNTRACED) };
-    if ret > 0 { Some((ret, status)) } else { None }
-}
-
 pub struct OnDrop<T>(Option<T>)
 where
     T: FnOnce();
