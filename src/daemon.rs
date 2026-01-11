@@ -42,7 +42,6 @@ pub mod service;
 
 mod utils;
 use utils::LoadFromFile;
-use utils::signal;
 
 #[tracing::instrument(ret)]
 pub fn find_config_file() -> Option<PathBuf> {
@@ -94,8 +93,7 @@ fn main() -> Result<()> {
         .and_then(|x| x.parse::<SocketAddr>().ok())
         .unwrap_or(DEFAULT_ADDR);
 
-    // block signal before spawning threads to apply mask to all threads
-    (signal::SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM).block()?;
+    Monitor::init()?;
 
     tracing::info!("starting daemon");
     let monitor = Arc::new(if let Some(file) = find_config_file() {

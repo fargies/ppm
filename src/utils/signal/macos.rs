@@ -24,6 +24,7 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use libc::{pthread_kill, pthread_t};
 use std::time::Duration;
 use std::{ops::Deref, os::raw::c_void};
 
@@ -48,6 +49,7 @@ impl Default for Timer {
             );
         }
         source.set_event_handler_f(dispatch_function);
+        source.resume();
         tracing::trace!(tid, "timer created");
         Self {
             source,
@@ -62,9 +64,9 @@ unsafe extern "C" {
 }
 
 extern "C" fn dispatch_function(_arg: *mut c_void) {
-    let tid = _arg as libc::pthread_t;
+    let tid = _arg as pthread_t;
     tracing::trace!(tid, "timer dispatched sending SIGALRM");
-    libc_check(unsafe { libc::pthread_kill(_arg as libc::pthread_t, libc::SIGALRM) }).unwrap();
+    libc_check(unsafe { pthread_kill(_arg as pthread_t, libc::SIGALRM) }).unwrap();
 }
 
 impl Timer {
@@ -102,9 +104,15 @@ impl Timer {
 
     /// Start the system timer
     pub fn start(&self) -> Result<()> {
+        self.source.suspend();
+        let interval = self._interval.as_nanos() as u64;
         self.source.set_timer(
             Time::NOW.new_after(self._duration.as_nanos() as i64),
-            self._interval.as_nanos() as u64,
+            if interval == 0 {
+                Time::FOREVER.0
+            } else {
+                interval
+            },
             1_000_000,
         );
         self.source.resume();
@@ -123,5 +131,32 @@ impl Timer {
 impl Drop for Timer {
     fn drop(&mut self) {
         self.source.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::signal::{SIGALRM, SignalSet};
+    use anyhow::Result;
+    use serial_test::serial;
+
+    #[ctor::ctor]
+    fn prepare() {
+        // rust test framewrok uses threads, the main process may handle signals
+        (SignalSet::empty() + SIGALRM).block();
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn one_shot() -> Result<()> {
+        let sigset = SignalSet::empty() + SIGALRM;
+        sigset.block()?;
+
+        let timer = Timer::new(Duration::from_millis(1), false);
+        timer.start()?;
+
+        assert_eq!(SIGALRM, sigset.wait()?);
+        Ok(())
     }
 }
