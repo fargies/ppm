@@ -142,7 +142,9 @@ pub struct SignalSet(pub libc::sigset_t);
 impl Debug for SignalSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("SignalSet")
-            .field(&format_args!("{:X}", unsafe { *(&self.0 as *const u32) }))
+            .field(&format_args!("{:X}", unsafe {
+                *(&self.0 as *const _ as *const u32)
+            }))
             .finish()
     }
 }
