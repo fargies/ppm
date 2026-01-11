@@ -36,7 +36,7 @@ use crate::{
         self,
         libc::{getpid, gettid, setsid, waitpid},
         serializers::instant::check_ref_time,
-        signal::{self, SignalSet, Timer},
+        signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
     },
 };
 
@@ -87,7 +87,10 @@ impl Default for Monitor {
 
 impl Monitor {
     #[tracing::instrument()]
-    pub fn init() {
+    pub fn init() -> Result<()> {
+        // block signal before spawning threads to apply mask to all threads
+        (SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGINT).block()?;
+
         if let Err(err) = setsid() {
             tracing::error!(?err, "setsid failed");
         }
@@ -97,6 +100,7 @@ impl Monitor {
                 tracing::error!(?err, "failed to set child-subreaper");
             }
         }
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -108,9 +112,9 @@ impl Monitor {
         while let Some((pid, status)) = waitpid(pid, false) {
             if let Some(service) = self.find_by_pid(pid) {
                 if libc::WIFSIGNALED(status) {
-                    let signal = signal::Signal(libc::WTERMSIG(status));
+                    let signal = Signal(libc::WTERMSIG(status));
 
-                    if signal == signal::SIGTERM {
+                    if signal == SIGTERM {
                         service.set_finished();
                     } else {
                         service.set_crashed();
@@ -182,12 +186,7 @@ impl Monitor {
     }
 
     pub fn run(&self) -> Result<()> {
-        let sigset = SignalSet::default()
-            + signal::SIGALRM
-            + signal::SIGCHLD
-            + signal::SIGTERM
-            + signal::SIGHUP
-            + signal::SIGINT;
+        let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
         }
@@ -216,17 +215,29 @@ impl Monitor {
             }
 
             match sigset.wait()? {
-                signal::SIGALRM => {
+                SIGALRM => {
                     tracing::trace!("processing events");
                     self.process();
                 }
-                signal::SIGHUP => {
+                SIGHUP => {
                     tracing::info!("refreshing scheduler");
                     self.scheduler.init(self);
                 }
-                signal::SIGCHLD => self.on_sigchld(),
-                signal @ (signal::SIGTERM | signal::SIGINT) => {
+                SIGCHLD => self.on_sigchld(),
+                signal @ (SIGTERM | SIGINT) => {
                     tracing::info!("termination requested ({:?})", signal);
+                    // timer.stop()?;
+                    for service in self.services.iter() {
+                        if let Some(pid) = service.info().pid {
+                            tracing::trace!(
+                                id = service.id,
+                                name = service.name,
+                                pid,
+                                "stopping service"
+                            );
+                            let _ = Signal::kill(pid, SIGTERM);
+                        }
+                    }
                     return Ok(());
                 }
                 signal => {
@@ -285,7 +296,7 @@ mod tests {
 
     use crate::{
         service::{Command, Status},
-        utils::signal::{SIGALRM, SIGCHLD, SIGTERM, Signal},
+        utils::signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
     };
     use anyhow::Result;
     use serial_test::serial;
@@ -318,8 +329,7 @@ mod tests {
     #[test]
     #[serial(waitpid)]
     fn sigchld() -> Result<()> {
-        let sigset =
-            signal::SignalSet::default() + signal::SIGALRM + signal::SIGCHLD + signal::SIGTERM;
+        let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM;
 
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
@@ -330,7 +340,7 @@ mod tests {
 
         srv.start();
 
-        assert_eq!(sigset.wait()?, signal::SIGCHLD);
+        assert_eq!(sigset.wait()?, SIGCHLD);
         Monitor::default().on_sigchld();
 
         sigset.restore()
@@ -353,13 +363,13 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert_eq!(1, service.info().restarts);
         match service.info().pid {
-            Some(pid) => Signal::kill(pid, signal::SIGKILL)?,
+            Some(pid) => Signal::kill(pid, SIGKILL)?,
             None => panic!("process not started"),
         };
         std::thread::sleep(mon.restart_interval * 2);
         assert_ne!(1, service.info().restarts);
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
@@ -378,7 +388,7 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(std::time::Duration::from_millis(300));
-        Signal::kill(getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), SIGTERM)?;
 
         join_handle.join().unwrap()?;
 
@@ -404,16 +414,16 @@ mod tests {
         let info = service.info();
         assert_ne!(None, info.pid);
 
-        Signal::kill(info.pid.unwrap(), signal::Signal(libc::SIGSTOP))?;
+        Signal::kill(info.pid.unwrap(), Signal(libc::SIGSTOP))?;
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert_eq!(service.info().status, Status::Stopped);
 
-        Signal::kill(info.pid.unwrap(), signal::Signal(libc::SIGCONT))?;
+        Signal::kill(info.pid.unwrap(), Signal(libc::SIGCONT))?;
         std::thread::sleep(mon.stats_interval * 2);
 
         assert_eq!(service.info().status, Status::Running);
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), SIGTERM)?;
 
         join_handle.join().unwrap()?;
         Ok(())

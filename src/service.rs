@@ -385,9 +385,10 @@ mod tests {
             .truncate(true)
             .read(true)
             .write(true)
+            .create(true)
             .open(std::env::temp_dir().join("ppm_test_child_death.txt"))?;
 
-        Monitor::init();
+        Monitor::init()?;
 
         match unsafe { libc::fork() } {
             x if x < 0 => panic!("failed to fork"),
@@ -422,7 +423,8 @@ mod tests {
                     /* this should happen if current process has correctly been set as a subreaper */
                     tracing::info!(pid, "collected");
                 }
-                /* init should release the process, and it should receive SIGKILL on Linux */
+                /* process should have been collected, and it should have received SIGKILL (on Linux only) */
+                #[cfg(target_os = "linux")]
                 assert_eq!(-1, unsafe { libc::kill(child_pid, 0) });
             }
         }
