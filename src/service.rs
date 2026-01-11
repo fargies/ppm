@@ -186,7 +186,7 @@ impl Service {
 
         if let Some(pid) = self.info().pid {
             tracing::debug!(pid, "trying to stop");
-            if self.terminate(signal::SIGTERM, &Duration::from_secs(5)) {
+            if self.terminate(SIGTERM, &Duration::from_secs(5)) {
                 tracing::info!(pid = pid, "process terminated");
             } else if self.terminate(signal::SIGKILL, &Duration::from_secs(10)) {
                 tracing::info!(pid = pid, "process killed");
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
+        Signal::kill(getpid(), SIGTERM)?;
         join_handle.join().unwrap()?;
         Ok(())
     }
