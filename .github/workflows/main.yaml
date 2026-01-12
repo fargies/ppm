@@ -1,4 +1,4 @@
-on: [ push, workflow_dispatch ]
+on: [push, workflow_dispatch]
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,7 +25,7 @@ jobs:
       - name: Prepare container
         uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
         with:
-          dependencies: base-devel
+          dependencies: base-devel git
       - name: Build project
         run: cargo build
       - name: Run tests
@@ -35,15 +35,18 @@ jobs:
       - name: Build package
         run: |
           cargo install cargo-arch
-          cargo arch
+          chown -R nobody "$HOME" .
+          chmod 755 "$HOME"
+          sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo build --release
+          sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo arch
       - name: Upload artifacts
         uses: https://gitea.com/actions/gitea-upload-artifact@v4
         with:
           name: packages
-          path: '*.pkg.tar.zst'
+          path: "*.pkg.tar.zst"
       - name: Publish package
         if: startsWith(github.ref, 'refs/tags/v')
-        uses:  ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/archlinux@master
+        uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/archlinux@master
         with:
           token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
 
@@ -54,7 +57,7 @@ jobs:
       - name: Prepare container
         uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
         with:
-          toolchain: 'stable-x86_64-unknown-linux-gnu'
+          toolchain: "stable-x86_64-unknown-linux-gnu"
           dependencies: build-essential git libssl-dev pkg-config clang
       - name: Build project
         run: cargo build --release
@@ -69,10 +72,10 @@ jobs:
         uses: https://gitea.com/actions/gitea-upload-artifact@v4
         with:
           name: packages
-          path: '*.deb'
+          path: "*.deb"
       - name: Publish package
         if: startsWith(github.ref, 'refs/tags/v')
-        uses:  ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/debian@master
+        uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/debian@master
         with:
           token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
 
@@ -94,4 +97,4 @@ jobs:
           files: |-
             *.deb
             *.pkg.tar.zst
-    needs: [ build-archlinux, build-debian ]
+    needs: [build-archlinux, build-debian]
