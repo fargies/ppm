@@ -136,3 +136,7 @@ the following states:
 
 When a service enters the **Crashed** state, it is automatically restarted by
 the daemon using an exponential backoff strategy: `interval * (2^(nb_restart - 1))`
+
+## Development
+
+For additional informations on development please see [DEV](./DEV.md).
