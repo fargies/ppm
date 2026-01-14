@@ -1,3 +1,4 @@
+
 [package]
 name = "partner-pm"
 description = "Partner Process Monitor"
@@ -8,6 +9,17 @@ readme = "README.md"
 homepage = "https://www.gremory.org/gitea/fargie_s/ppm"
 version = "1.1.0"
 edition = "2024"
+
+[package.metadata.deb]
+section = "Utilities"
+separate-debug-symbols = true
+assets = [
+    "$auto",
+    ["data/ppm_128x128.png", "usr/share/icons/hicolor/128x128/apps/ppm.png", "644"],
+    ["data/ppm_256x256.png", "usr/share/icons/hicolor/256x256/apps/ppm.png", "644"],
+    ["data/ppm_256x256@2.png", "usr/share/icons/hicolor/256x256@2/apps/ppm.png", "644"],
+    ["data/ppm.svg", "usr/share/icons/hicolor/scalable/apps/ppm.svg", "644"]
+]
 
 [[bin]]
 name = "ppm-daemon"
@@ -20,21 +32,21 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.100"
 chrono = { version = "0.4.42", features = ["serde"] }
-clap = { version = "4.5.53", features = ["derive"] }
+clap = { version = "4.5.54", features = ["derive"] }
 colored = "3.0.0"
 croner = { version = "3.0.1", features = ["serde"] }
 dashmap = { version = "6.1.0", features = ["serde"] }
 dirs = "6.0.0"
 humantime = "2.3.0"
 humantime-serde = "1.1.1"
-libc = "0.2.178"
+libc = "0.2.180"
 serde = { version = "1.0.228", features = ["rc", "derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 serde_yaml_ng = "0.10.0"
 sysinfo = "0.37.2"
 tabled = { version = "0.20.0", features = ["ansi"] }
 tracing = "0.1.44"
-tracing-forest = { version = "0.3.0", features = [
+tracing-forest = { version = "0.3.1", features = [
     "ansi",
     "ansi_term",
     "chrono",
@@ -50,7 +62,7 @@ tracing-subscriber = { version = "0.3.22", features = [
 
 [dev-dependencies]
 ctor = "0.6.3"
-serial_test = "3.2.0"
+serial_test = "3.3.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatchr = "1.0.0"

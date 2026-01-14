@@ -1,100 +1,100 @@
 on: [push, workflow_dispatch]
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  build-ubuntu-default:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fetch sources
-        uses: https://gitea.com/actions/checkout@v5
-      - name: Install Rust
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
-      - name: Build project
-        run: cargo build
-      - name: Run tests
-        run: cargo test
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
+    build-ubuntu-default:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Fetch sources
+              uses: https://gitea.com/actions/checkout@v5
+            - name: Install Rust
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
+            - name: Build project
+              run: cargo build
+            - name: Run tests
+              run: cargo test
+            - name: Run clippy
+              run: cargo clippy -- -D warnings
 
-  build-archlinux:
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    steps:
-      - name: Prepare container
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
-        with:
-          dependencies: base-devel git jq
-      - name: Build project
-        run: cargo build
-      - name: Run tests
-        run: cargo test
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-      - name: Build package
-        run: |
-          cargo install cargo-arch
-          chown -R nobody "$HOME" .
-          chmod 755 "$HOME"
-          sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo build --release
-          sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo arch
-      - name: Upload artifacts
-        uses: https://gitea.com/actions/gitea-upload-artifact@v4
-        with:
-          name: packages
-          path: "*.pkg.tar.zst"
-      - name: Publish package
+    build-archlinux:
+        runs-on: ubuntu-latest
+        container: archlinux:latest
+        steps:
+            - name: Prepare container
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
+              with:
+                  dependencies: base-devel git jq
+            - name: Build project
+              run: cargo build
+            - name: Run tests
+              run: cargo test
+            - name: Run clippy
+              run: cargo clippy -- -D warnings
+            - name: Build package
+              run: |
+                  cargo install cargo-arch
+                  chown -R nobody "$HOME" .
+                  chmod 755 "$HOME"
+                  sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo build --release
+                  sudo -u nobody env "PATH=$PATH" "HOME=$HOME" cargo arch
+            - name: Upload artifacts
+              uses: https://gitea.com/actions/gitea-upload-artifact@v4
+              with:
+                  name: packages
+                  path: "*.pkg.tar.zst"
+            - name: Publish package
+              if: startsWith(github.ref, 'refs/tags/v')
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/archlinux@master
+              with:
+                  token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
+
+    build-debian:
+        runs-on: ubuntu-latest
+        container: debian:stable
+        steps:
+            - name: Prepare container
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
+              with:
+                  toolchain: "stable-x86_64-unknown-linux-gnu"
+                  dependencies: build-essential git libssl-dev pkg-config clang jq
+            - name: Build project
+              run: cargo build --release
+            - name: Run tests
+              run: cargo test
+            - name: Build package
+              run: |
+                  cargo install cargo-deb
+                  cargo deb
+                  mv target/debian/*.deb .
+            - name: Upload artifacts
+              uses: https://gitea.com/actions/gitea-upload-artifact@v4
+              with:
+                  name: packages
+                  path: "*.deb"
+            - name: Publish package
+              if: startsWith(github.ref, 'refs/tags/v')
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/debian@master
+              with:
+                  token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
+
+    release:
+        runs-on: ubuntu-latest
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/archlinux@master
-        with:
-          token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
-
-  build-debian:
-    runs-on: ubuntu-latest
-    container: debian:stable
-    steps:
-      - name: Prepare container
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
-        with:
-          toolchain: "stable-x86_64-unknown-linux-gnu"
-          dependencies: build-essential git libssl-dev pkg-config clang jq
-      - name: Build project
-        run: cargo build --release
-      - name: Run tests
-        run: cargo test
-      - name: Build package
-        run: |
-          cargo install cargo-bundle
-          cargo bundle -f deb -r
-          mv target/release/bundle/deb/*.deb .
-      - name: Upload artifacts
-        uses: https://gitea.com/actions/gitea-upload-artifact@v4
-        with:
-          name: packages
-          path: "*.deb"
-      - name: Publish package
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/publish/gitea/debian@master
-        with:
-          token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
-
-  release:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Prepare container
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare@master
-        with:
-          dependencies: jq
-      - name: Download artifacts
-        uses: https://gitea.com/fargie_s/download-artifact@main
-        with:
-          name: packages
-      - name: Create release
-        uses: https://gitea.com/actions/gitea-release-action@v1
-        with:
-          files: |-
-            *.deb
-            *.pkg.tar.zst
-    needs: [build-archlinux, build-debian]
+        steps:
+            - name: Prepare container
+              uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare@master
+              with:
+                  dependencies: jq
+            - name: Download artifacts
+              uses: https://gitea.com/fargie_s/download-artifact@main
+              with:
+                  name: packages
+            - name: Create release
+              uses: https://gitea.com/actions/gitea-release-action@v1
+              with:
+                  files: |-
+                      *.deb
+                      *.pkg.tar.zst
+        needs: [build-archlinux, build-debian]
