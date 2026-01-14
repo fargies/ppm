@@ -21,7 +21,8 @@ After evaluating existing solutions—most notably [pm2](https://pm2.keymetrics.
 which is written in [Node.js](https://nodejs.org), as well as alternatives like
 [pmc](https://pmc.dev)—none fully matched my requirements.
 
-As a result, I decided to build a **minimalist yet feature-rich process monitoring tool**
+As a result, I decided to build a
+**minimalist yet feature-rich process monitoring tool**
 in [Rust](https://www.rust-lang.org).
 
 ## Getting Started
@@ -48,9 +49,42 @@ ppm daemon --config "config.yml"
 PPM_CONFIG="config.yml" ppm-daemon
 ```
 
+The configuration file describes services and daemon configuration:
+
+```yml
+# Statistics refreshing period (optional, defaults to 10s)
+stats_interval: 10s
+# Service restart base time (optional, defaults to 1s)
+restart_interval: 1s
+# System clock checking interval (optional, defaults to 1h)
+clock_check_interval: 1h
+
+services:
+  # Basic service definition
+  - name: my_test_service
+    command: sh -c "while true; do echo world; sleep 30; done"
+  - name: complete_service
+    # preserve the service-id amongst restarts
+    id: 1
+    command:
+      # executable path and arguments
+      path: "/bin/sh"
+      args:
+        - "-c"
+        - "while true; do echo ${MY_VAR}; sleep 30; done"
+      # environment variables
+      env:
+        MY_VAR: "value"
+    # schedule the service to run every 30 seconds
+    schedule: "*/30 * * * * *"
+```
+
+It may be built and generated using the cli (see _Usage_ section).
+
 ### Usage
 
-Below are some example commands. Additional details are available using the `--help` option.
+Below are some example commands. Additional details are available using
+the `--help` option.
 
 ```bash
 # Run the daemon (typically in the background)
@@ -81,7 +115,8 @@ ppm show-configuration > ~/.partner-pm.yml
 
 ### Service Status
 
-**PPM** spawns and monitors _services_, each of which can be in one of the following states:
+**PPM** spawns and monitors _services_, each of which can be in one of
+the following states:
 
 - **Created**
   Temporary state; the daemon has not yet handled the newly created service.
