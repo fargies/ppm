@@ -62,6 +62,9 @@ pub struct Service {
     pub name: String,
     /// Command to run
     pub command: Command,
+    /// Workdir for the service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<String>,
     /// Command schedule for periodic commands
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<Cron>,
@@ -106,6 +109,7 @@ impl Service {
             id: S_ID.fetch_add(1, Ordering::Relaxed),
             name: name.to_string(),
             command,
+            workdir: None,
             schedule: Default::default(),
             _info: Default::default(),
             _stats: Default::default(),
@@ -155,6 +159,9 @@ impl Service {
                     .stdin(process::Stdio::null())
                     .stdout(process::Stdio::inherit())
                     .stderr(process::Stdio::inherit());
+                if let Some(workdir) = self.workdir.as_ref() {
+                    cmd.current_dir(workdir);
+                }
 
                 match self.command.env.as_ref() {
                     Some(env) => cmd.envs(env),
@@ -279,6 +286,7 @@ impl Default for Service {
             id: SERVICE_ID_INVALID,
             name: Default::default(),
             command: Default::default(),
+            workdir: None,
             schedule: Default::default(),
             _info: Default::default(),
             _stats: Default::default(),
@@ -355,10 +363,7 @@ mod tests {
 
         service.stop();
         assert!(!service.info().active);
-        // wait for command to terminate
-        std::thread::sleep(Duration::from_millis(100));
 
-        mon.on_sigchld();
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
 
@@ -375,6 +380,33 @@ mod tests {
             serde_yaml_ng::from_str::<Service>(&data).unwrap().command,
             srv.command
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn workdir() -> Result<()> {
+        (SignalSet::empty() + SIGCHLD).block()?;
+        let temp_dir = std::env::temp_dir();
+        let mut srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
+        srv.workdir = temp_dir.to_str().map(str::to_owned);
+        srv.start();
+        let mon = Arc::new(Monitor::default());
+        let service = mon.insert(srv);
+
+        let join_handle = {
+            /* Monitor is handling dead processes */
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+
+        let pid = service.info().pid.expect("pid should be set");
+        assert_eq!(std::fs::read_link(format!("/proc/{pid}/cwd"))?, temp_dir);
+
+        service.stop();
+
+        Signal::kill(getpid(), SIGTERM)?;
+        join_handle.join().unwrap()?;
+        Ok(())
     }
 
     #[test]

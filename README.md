@@ -72,6 +72,8 @@ services:
       args:
         - "-c"
         - "while true; do echo ${MY_VAR}; sleep 30; done"
+      # service working directory
+      workdir: "/app"
       # environment variables
       env:
         MY_VAR: "value"
