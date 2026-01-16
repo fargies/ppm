@@ -154,7 +154,9 @@ impl Monitor {
         for event in self.scheduler.iter() {
             match event {
                 SchedulerEvent::ServiceSchedule { id, date_time, .. } => {
-                    if let Some(service) = self.get(&id) {
+                    if let Some(service) = self.get(&id)
+                        && service.info().active
+                    {
                         service.restart();
                         self.scheduler.reschedule(&service, Some(date_time));
                     } else {
@@ -163,7 +165,11 @@ impl Monitor {
                 }
                 SchedulerEvent::ServiceRestart { id, .. } => {
                     if let Some(service) = self.get(&id) {
-                        service.restart();
+                        if service.info().active {
+                            service.restart();
+                        } else {
+                            tracing::warn!(id, "not restarting inactive service");
+                        }
                     } else {
                         tracing::warn!(id, "unknown service");
                     }

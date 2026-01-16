@@ -124,6 +124,7 @@ impl Scheduler {
         });
     }
 
+    /// (re)schedule a period service
     #[tracing::instrument(fields(id = service.id, name = service.name), skip(self, service))]
     pub fn reschedule(&self, service: &Service, last: Option<DateTime<Local>>) {
         if let Some(schedule) = service.schedule.as_ref() {
@@ -144,6 +145,7 @@ impl Scheduler {
         }
     }
 
+    /// schedule a crashed service restart
     #[tracing::instrument(fields(id = service.id, name = service.name), skip(self, service, monitor))]
     pub fn schedule_restart(&self, service: &Service, monitor: &Monitor) {
         self.queue().push(SchedulerEvent::ServiceRestart {
