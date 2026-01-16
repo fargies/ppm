@@ -49,6 +49,8 @@ use sysinfo::Sysinfo;
 pub mod scheduler;
 use scheduler::Scheduler;
 
+pub mod watch;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Monitor {
