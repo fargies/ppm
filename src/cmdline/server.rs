@@ -134,7 +134,7 @@ impl Server {
         Ok(())
     }
 
-    fn run_action(stream: &TcpStream, monitor: &Monitor, action: Action) -> Result<()> {
+    fn run_action(stream: &TcpStream, monitor: &Arc<Monitor>, action: Action) -> Result<()> {
         match action {
             Action::Daemon { .. } => {
                 unimplemented!("daemon command must be handled from client side (fork/exec)")
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     #[serial(waitpid)]
     fn request() -> Result<()> {
-        let monitor = Monitor::default();
+        let monitor = Monitor::new();
         monitor.insert(Service::new("test", Command::new("ls", ["-la"])));
         let server = Server::new(monitor.into(), "127.0.0.1:0")?;
         let addr = server.socket.local_addr()?;

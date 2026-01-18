@@ -17,60 +17,47 @@
 **    misrepresented as being the original software.
 ** 3. This notice may not be removed or altered from any source distribution.
 **
-** Created on: 2025-12-22T22:55:22
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{io::IsTerminal, sync::atomic::AtomicBool};
+use std::fmt::{Debug, Formatter, Result};
 
-mod serde_utils;
-pub use serde_utils::{InnerRef, LoadFromFile, wrap_map_iterator};
+///
+pub struct DebugIter<T>(std::cell::Cell<Option<T>>);
 
-pub mod signal;
-
-pub mod libc;
-
-pub mod serializers;
-
-mod lazy_bool;
-pub use lazy_bool::LazyBool;
-
-mod globset;
-pub use globset::GlobSet;
-
-pub mod debug;
-
-#[cfg(test)]
-mod mktemp;
-#[cfg(test)]
-pub use mktemp::MkTemp;
-
-pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
-    AtomicBool::new(
-        std::io::stdout().is_terminal() && !std::env::var("NO_COLOR").is_ok_and(|v| !v.is_empty()),
-    )
-});
-
-pub struct OnDrop<T>(Option<T>)
+impl<T> Debug for DebugIter<T>
 where
-    T: FnOnce();
-
-impl<T> OnDrop<T>
-where
-    T: FnOnce(),
+    T: IntoIterator,
+    T::Item: Debug,
 {
-    pub fn new(fun: T) -> Self {
-        Self(Some(fun))
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let mut list = f.debug_list();
+
+        if let Some(iterable) = self.0.replace(None) {
+            for i in iterable.into_iter() {
+                list.entry(&i);
+            }
+        }
+        list.finish()
     }
 }
 
-impl<T> Drop for OnDrop<T>
-where
-    T: FnOnce(),
-{
-    fn drop(&mut self) {
-        if let Some(callback) = self.0.take() {
-            callback()
-        }
+impl<T> DebugIter<T> {
+    pub fn new(value: T) -> Self {
+        Self(std::cell::Cell::new(Some(value)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_iter() {
+        let value = [1, 2, 3];
+        assert_eq!(
+            "[1, 2, 3]",
+            format!("{:?}", DebugIter::new(value.iter())).as_str()
+        );
     }
 }

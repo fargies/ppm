@@ -1,0 +1,18 @@
+services:
+  - id: 1
+    name: basic_file_watcher
+    command:
+      path: echo
+      args: [basic, file, watcher]
+    watch: .
+  - id: 2
+    name: file_watcher
+    command:
+      path: echo
+      args: [file, watcher]
+    watch:
+      # watch only for "txt" or "log" files in /tmp
+      include: ["/tmp", "*.txt", "*.log"]
+      exclude: "*"
+      max_depth: 1
+      paths: ["/tmp", "/tmp/not_exist"]

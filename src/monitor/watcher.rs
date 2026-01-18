@@ -37,7 +37,7 @@ use std::{
 use super::Monitor;
 use crate::{
     service::{ServiceId, Watch},
-    utils::libc::check,
+    utils::{debug::DebugIter, libc::check},
 };
 
 const WAKE_WORD: u8 = b'x';
@@ -55,6 +55,130 @@ pub struct Watcher {
     tx: PipeWriter,
     join_handle: Option<JoinHandle<()>>,
     watchs: WatchMap,
+}
+
+impl Watcher {
+    /// Create a new [Watcher] object
+    ///
+    /// This does not register services
+    pub fn new(monitor: &Arc<Monitor>) -> Result<Self> {
+        {
+            let (rx, tx) = pipe()?;
+            let mut ret = Self {
+                tx,
+                join_handle: None,
+                watchs: Arc::new(DashMap::new()),
+            };
+
+            let join_handle = {
+                let mut ctx = WatcherThreadContext {
+                    watchs: Arc::clone(&ret.watchs),
+                    rx,
+                    monitor: Arc::downgrade(monitor),
+                    buffer: vec![0; 4096],
+                };
+                std::thread::spawn(move || {
+                    ctx.run()
+                        .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
+                        .unwrap_or_default()
+                })
+            };
+            ret.join_handle = Some(join_handle);
+            Ok(ret)
+        }
+    }
+
+    pub fn wake(&mut self) {
+        if let Err(err) = self.tx.write(&[WAKE_WORD]) {
+            tracing::error!(?err, "failed to send wake-word");
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(join_handle) = self.join_handle.take() {
+            if let Err(err) = self.tx.write(&[EXIT_WORD]) {
+                tracing::error!(?err, "failed to send exit-word");
+            }
+            if let Err(err) = join_handle.join() {
+                tracing::error!(?err, "watcher thread join error");
+            }
+        }
+    }
+
+    fn register(&self, watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
+        if level >= watch.max_depth {
+            tracing::error!(?path, level, "max watcher recursion level reached");
+            return;
+        }
+        tracing::trace!(?path, "adding watch");
+
+        if path.is_dir() {
+            if let Err(err) = watches.add(
+                path,
+                WatchMask::CREATE
+                    | WatchMask::DELETE
+                    | WatchMask::MODIFY
+                    | WatchMask::MOVED_TO
+                    | WatchMask::MOVED_FROM,
+            ) {
+                tracing::error!(?err, ?path, "failed to watch dir");
+            }
+
+            match read_dir(path) {
+                Ok(rd) => {
+                    for file in rd.filter_map(|x| x.ok()) {
+                        let path = file.path();
+                        if path.is_dir() && !watch.is_excluded(&path) {
+                            self.register(watches, &path, watch, level + 1);
+                        }
+                    }
+                }
+                Err(err) => tracing::error!(?err, ?path, "failed to read dir"),
+            }
+        } else if path.is_file() {
+            if let Err(err) = watches.add(
+                path,
+                WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::all(),
+            ) {
+                tracing::error!(?err, ?path, "failed to watch file");
+            }
+        }
+    }
+
+    pub fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
+        let inotify = Inotify::init()?;
+
+        for path in watch.paths.iter() {
+            if watch.is_excluded(path) {
+                tracing::warn!(
+                    ?path,
+                    "configured path is excluded, add it to the `include` list"
+                );
+            } else {
+                self.register(&mut inotify.watches(), &path, watch, 0);
+            }
+        }
+
+        // remove duplicates
+        self.watchs
+            .retain(|_, value| &value.service_id != service_id);
+        self.watchs.insert(
+            inotify.as_raw_fd(),
+            Arc::new(WatchInfo {
+                service_id: *service_id,
+                inotify: Mutex::new(inotify),
+            }),
+        );
+        self.wake();
+
+        Ok(())
+    }
+
+    pub fn remove(&mut self, service_id: &ServiceId) {
+        self.watchs
+            .retain(|_, value| &value.service_id != service_id);
+        self.wake();
+    }
 }
 
 struct WatcherThreadContext {
@@ -166,137 +290,20 @@ impl WatcherThreadContext {
                     .as_ref()
                     .is_some_and(|w| !w.is_excluded(Path::new(name)))
                 {
-                    tracing::info!(id=service.id, name=service.name, file=?name, "file event detected");
+                    tracing::info!(id=service.id, name=service.name, file=?name,
+                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
+                        "file event detected");
                     // FIXME: should be throttled somehow ? use the scheduler ?
                     service.restart();
                 } else {
-                    tracing::trace!(id = service.id, name = service.name, "file event rejected")
+                    tracing::trace!(id=service.id, name=service.name, file=?name,
+                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
+                        "file event rejected")
                 }
             }
         }
 
         Ok(true)
-    }
-}
-
-impl Watcher {
-    pub fn new(monitor: &Arc<Monitor>) -> Result<Self> {
-        {
-            let (rx, tx) = pipe()?;
-            let mut ret = Self {
-                tx,
-                join_handle: None,
-                watchs: Arc::new(DashMap::new()),
-            };
-
-            for service in monitor.services.iter() {
-                if let Some(watch) = service.watch.as_ref() {
-                    if let Err(err) = ret.add(*service.key(), watch) {
-                        // unlikely, os-error
-                        tracing::error!(?err, "failed to add watch");
-                    }
-                }
-            }
-
-            let join_handle = {
-                let mut ctx = WatcherThreadContext {
-                    watchs: Arc::clone(&ret.watchs),
-                    rx,
-                    monitor: Arc::downgrade(monitor),
-                    buffer: vec![0; 4096],
-                };
-                std::thread::spawn(move || {
-                    ctx.run()
-                        .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
-                        .unwrap_or_default()
-                })
-            };
-            ret.join_handle = Some(join_handle);
-            Ok(ret)
-        }
-    }
-
-    pub fn wake(&mut self) {
-        if let Err(err) = self.tx.write(&[WAKE_WORD]) {
-            tracing::error!(?err, "failed to send wake-word");
-        }
-    }
-
-    pub fn stop(&mut self) {
-        if let Some(join_handle) = self.join_handle.take() {
-            if let Err(err) = self.tx.write(&[EXIT_WORD]) {
-                tracing::error!(?err, "failed to send exit-word");
-            }
-            if let Err(err) = join_handle.join() {
-                tracing::error!(?err, "watcher thread join error");
-            }
-        }
-    }
-
-    fn register(&self, watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
-        if level >= watch.max_depth {
-            tracing::error!(?path, level, "max watcher recursion level reached");
-            return;
-        }
-        tracing::trace!(?path, "adding watch");
-
-        if path.is_dir() {
-            if let Err(err) = watches.add(
-                path,
-                WatchMask::CREATE
-                    | WatchMask::DELETE
-                    | WatchMask::MODIFY
-                    | WatchMask::MOVED_TO
-                    | WatchMask::MOVED_FROM,
-            ) {
-                tracing::error!(?err, ?path, "failed to watch dir");
-            }
-
-            match read_dir(path) {
-                Ok(rd) => {
-                    for file in rd.filter_map(|x| x.ok()) {
-                        let path = file.path();
-                        if path.is_dir() && !watch.is_excluded(&path) {
-                            self.register(watches, &path, watch, level + 1);
-                        }
-                    }
-                }
-                Err(err) => tracing::error!(?err, ?path, "failed to read dir"),
-            }
-        } else if path.is_file() {
-            if let Err(err) = watches.add(
-                path,
-                WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::all(),
-            ) {
-                tracing::error!(?err, ?path, "failed to watch file");
-            }
-        }
-    }
-
-    pub fn add(&mut self, service_id: ServiceId, watch: &Watch) -> Result<()> {
-        let inotify = Inotify::init()?;
-
-        for path in watch.paths.iter() {
-            if watch.is_excluded(path) {
-                tracing::warn!(
-                    ?path,
-                    "configured path is excluded, add it to the `include` list"
-                );
-            } else {
-                self.register(&mut inotify.watches(), &path, watch, 0);
-            }
-        }
-
-        self.watchs.insert(
-            inotify.as_raw_fd(),
-            Arc::new(WatchInfo {
-                service_id,
-                inotify: Mutex::new(inotify),
-            }),
-        );
-        self.wake();
-
-        Ok(())
     }
 }
 
@@ -357,7 +364,6 @@ mod tests {
             srv.start();
             mon.insert(srv)
         };
-        let watcher = Watcher::new(&mon);
 
         let join_handle = {
             /* Monitor is handling dead processes */
@@ -366,11 +372,10 @@ mod tests {
         };
 
         std::thread::sleep(Duration::from_millis(100));
+        tracing::trace!("creating test file");
         File::create(temp.as_ref().join("test_file"))?;
         std::thread::sleep(Duration::from_millis(100));
         assert_eq!(service.info().restarts, 2);
-
-        drop(watcher);
 
         Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;

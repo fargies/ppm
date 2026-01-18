@@ -1,0 +1,29 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "adapter": "CodeLLDB",
+    "label": "PPM daemon",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "--package", "partner-pm"],
+      "use_new_terminal": false,
+      "allow_concurrent_runs": false,
+      "reveal": "always",
+      "reveal_target": "dock",
+      "hide": "never",
+      "shell": "system",
+      "show_summary": false,
+      "show_command": false,
+    },
+    "sourceLanguages": ["rust"],
+    "request": "launch",
+    "program": "target/debug/ppm-daemon",
+    "env": {
+      "RUST_lOG": "trace",
+      "PPM_CONFIG": "data/test-watcher-config.yml",
+    },
+  },
+]
