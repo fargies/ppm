@@ -7,9 +7,9 @@ containers.
 It aims to be **low-overhead** and **low-footprint**, with ease of use as a core
 principle, while still offering optional advanced features such as:
 
-- Resource usage reporting
-- Cron support
-- Other monitoring utilities
+- [Resource Usage Reporting](./docs/resource_usage.md)
+- [File Change Monitoring](./docs/file_monitoring.md)
+- [Cron-like Scheduling](./docs/scheduling.md)
 
 ## Why “PPM”?
 
@@ -29,7 +29,30 @@ in [Rust](https://www.rust-lang.org).
 
 ### Installation
 
-<!-- FIXME -->
+On [Debian](https://www.debian.org/) :
+
+```bash
+export REPO_URL=https://www.gremory.org/gitea/api/packages/fargie_s/debian
+source /etc/os-release
+
+sudo curl ${REPO_URL}/repository.key -o /etc/apt/keyrings/gitea-fargie_s.asc
+echo "deb [signed-by=/etc/apt/keyrings/gitea-fargie_s.asc] ${REPO_URL} ${VERSION_CODENAME} main" | sudo tee -a /etc/apt/sources.list.d/gitea.list
+
+sudo apt update
+sudo apt install partner-pm
+```
+
+On [ArchLinux](https://archlinux.org/) :
+
+```bash
+echo "
+[fargie_s.gitea:3000]
+SigLevel = Optional TrustAll
+Server = https://www.gremory.org/gitea/api/packages/fargie_s/arch/core/x86_64
+" >> /etc/pacman.conf
+
+pacman -Sy partner-pm
+```
 
 ### Configuration
 
@@ -47,7 +70,7 @@ ppm daemon --config "config.yml"
 
 # Running the daemon directly
 PPM_CONFIG="config.yml" ppm-daemon
-```
+````
 
 The configuration file describes services and daemon configuration:
 
