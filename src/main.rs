@@ -55,16 +55,3 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[ctor::ctor]
-    fn log_init() {
-        Registry::default()
-            .with(EnvFilter::from_default_env())
-            .with(tracing_forest::ForestLayer::default())
-            .try_init();
-    }
-}
