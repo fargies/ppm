@@ -229,8 +229,10 @@ mod tests {
 
     use super::*;
     use anyhow::Result;
+    use serial_test::serial;
 
     #[test]
+    #[serial(waitpid)]
     fn request() -> Result<()> {
         let monitor = Monitor::default();
         monitor.insert(Service::new("test", Command::new("ls", ["-la"])));

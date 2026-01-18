@@ -107,15 +107,6 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_yaml_ng as yaml;
 
-    #[ctor::ctor]
-    fn log_init() {
-        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(tracing_forest::ForestLayer::default())
-            .try_init();
-    }
-
     #[derive(Serialize, Deserialize, Debug)]
     struct Wrapper {
         #[serde(with = "super")]

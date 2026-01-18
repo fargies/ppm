@@ -22,11 +22,12 @@
 */
 
 use anyhow::Result;
+use libc::{c_int, pid_t};
 
 /// Set session-id
 ///
 /// Returns the new session-id
-pub fn setsid() -> Result<libc::pid_t> {
+pub fn setsid() -> Result<pid_t> {
     let ret = unsafe { libc::setsid() };
 
     if ret < 0 {
@@ -37,7 +38,7 @@ pub fn setsid() -> Result<libc::pid_t> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_child_subreaper(pid: libc::pid_t) -> Result<()> {
+pub fn set_child_subreaper(pid: pid_t) -> Result<()> {
     check(unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, pid) })
 }
 
@@ -45,13 +46,13 @@ pub fn gettid() -> libc::pthread_t {
     unsafe { libc::pthread_self() }
 }
 
-pub fn getpid() -> libc::pid_t {
+pub fn getpid() -> pid_t {
     unsafe { libc::getpid() }
 }
 
 /// Invoke waitpid in non-blocking mode
-pub fn waitpid(pid: libc::pid_t, blocking: bool) -> Option<(libc::pid_t, libc::c_int)> {
-    let mut status: libc::c_int = 0;
+pub fn waitpid(pid: pid_t, blocking: bool) -> Option<(pid_t, c_int)> {
+    let mut status: c_int = 0;
     let ret = unsafe {
         libc::waitpid(
             pid,
@@ -63,7 +64,7 @@ pub fn waitpid(pid: libc::pid_t, blocking: bool) -> Option<(libc::pid_t, libc::c
 }
 
 /// assert for libc functions
-pub fn check(res: libc::c_int) -> Result<()> {
+pub fn check(res: c_int) -> Result<()> {
     if res != 0 {
         let err = std::io::Error::last_os_error();
         tracing::trace_span!("libc_check", ?err);

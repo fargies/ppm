@@ -47,6 +47,9 @@ pub use status::Status;
 
 mod tabled;
 
+mod watch;
+pub use watch::Watch;
+
 static S_ID: AtomicUsize = AtomicUsize::new(0);
 pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
@@ -68,6 +71,9 @@ pub struct Service {
     /// Command schedule for periodic commands
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<Cron>,
+    /// Directory watchs to monitor
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watch: Option<Watch>,
     /// Running process informations
     #[serde(skip)]
     _info: Mutex<Arc<Info>>,
@@ -111,6 +117,7 @@ impl Service {
             command,
             workdir: None,
             schedule: Default::default(),
+            watch: None,
             _info: Default::default(),
             _stats: Default::default(),
         }
@@ -140,6 +147,10 @@ impl Service {
         if self.info().pid.is_some() {
             self.stop();
         }
+        // Lock the service info, may block clients for the time a service is
+        // restarted but will prevent monitor from running waitpid
+        // before we've set pid on this service
+        let mut guard = self._info.lock().unwrap();
 
         match unsafe { libc::fork() } {
             x if x < 0 => {
@@ -172,7 +183,6 @@ impl Service {
                 std::process::exit(-1);
             }
             pid => {
-                let mut guard = self._info.lock().unwrap();
                 let info = Arc::make_mut(&mut guard);
                 info.active = true;
                 info.set_running(pid);
@@ -288,6 +298,7 @@ impl Default for Service {
             command: Default::default(),
             workdir: None,
             schedule: Default::default(),
+            watch: None,
             _info: Default::default(),
             _stats: Default::default(),
         }
@@ -383,6 +394,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(waitpid)]
     #[cfg(target_os = "linux")]
     fn workdir() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
@@ -398,7 +410,8 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-
+        // Wait a bit for fork to exec
+        std::thread::sleep(Duration::from_millis(100));
         let pid = service.info().pid.expect("pid should be set");
         assert_eq!(std::fs::read_link(format!("/proc/{pid}/cwd"))?, temp_dir);
 

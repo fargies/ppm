@@ -49,7 +49,8 @@ use sysinfo::Sysinfo;
 pub mod scheduler;
 use scheduler::Scheduler;
 
-pub mod watch;
+pub mod watcher;
+use watcher::Watcher;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -64,6 +65,8 @@ pub struct Monitor {
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip)]
     pub scheduler: Scheduler,
+    #[serde(skip)]
+    pub watcher: Mutex<Option<Watcher>>,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
@@ -80,6 +83,7 @@ impl Default for Monitor {
             clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
             scheduler: Default::default(),
+            watcher: Default::default(),
             sysinfo: Default::default(),
             _stats: Default::default(),
             start_time: Instant::now(),
@@ -115,6 +119,13 @@ impl Monitor {
             if let Some(service) = self.find_by_pid(pid) {
                 if libc::WIFSIGNALED(status) {
                     let signal = Signal(libc::WTERMSIG(status));
+                    tracing::info!(
+                        id = service.id,
+                        name = service.name,
+                        pid,
+                        ?signal,
+                        "service terminated by signal"
+                    );
 
                     if signal == SIGTERM {
                         service.set_finished();
@@ -123,6 +134,13 @@ impl Monitor {
                     }
                 } else if libc::WIFEXITED(status) {
                     let code = libc::WEXITSTATUS(status);
+                    tracing::info!(
+                        id = service.id,
+                        name = service.name,
+                        pid,
+                        code,
+                        "service exited"
+                    );
 
                     if code == 0 {
                         service.set_finished();
@@ -294,7 +312,12 @@ impl Monitor {
 }
 
 extern "C" fn blocked_sighandler(sig: libc::c_int) {
-    tracing::error!(sig, pid = getpid(), tid = gettid(), "blocked signal caught");
+    tracing::error!(
+        sig = ?Signal(sig),
+        pid = getpid(),
+        tid = gettid(),
+        "blocked signal caught"
+    );
     panic!("blocked signal caught: {}", sig);
 }
 
@@ -311,8 +334,15 @@ mod tests {
 
     #[ctor::ctor]
     fn prepare() {
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            // .with(tracing_subscriber::fmt::layer().with_thread_ids(true)) // thread debugging
+            .with(tracing_forest::ForestLayer::default())
+            .try_init();
+
         // rust test framewrok uses threads, the main process may handle signals
-        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD).block();
+        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD + SIGINT).block();
     }
 
     #[test]

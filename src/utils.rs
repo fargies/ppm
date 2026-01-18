@@ -35,6 +35,12 @@ pub mod serializers;
 mod lazy_bool;
 pub use lazy_bool::LazyBool;
 
+mod globset;
+pub use globset::GlobSet;
+
+mod mktemp;
+pub use mktemp::MkTemp;
+
 pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
     AtomicBool::new(
         std::io::stdout().is_terminal() && !std::env::var("NO_COLOR").is_ok_and(|v| !v.is_empty()),
