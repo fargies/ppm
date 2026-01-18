@@ -4,6 +4,8 @@
 designed to run and supervise processes inside [Docker](https://www.docker.com/)
 containers.
 
+![ppm logo](./data/ppm_128x128.png)
+
 It aims to be **low-overhead** and **low-footprint**, with ease of use as a core
 principle, while still offering optional advanced features such as:
 
