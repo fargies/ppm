@@ -335,7 +335,7 @@ mod tests {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("ls", ["-la"]));
         service.start();
-        let mon = Monitor::default();
+        let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
         assert!(service.info().pid.is_some_and(|pid| pid > 0));

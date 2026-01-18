@@ -35,7 +35,7 @@ use std::{
 use crate::utils::GlobSet;
 
 static DEFAULT_EXCLUDE: LazyLock<GlobSet> =
-    LazyLock::new(|| GlobSet::try_from([".*", "**/{build,target}*", "*.o"]).unwrap());
+    LazyLock::new(|| GlobSet::try_from([".?*", "**/{build,target}*", "*.o"]).unwrap());
 const DEFAULT_MAX_DEPTH: usize = 4;
 
 /// Directory watching object

@@ -1,38 +1,38 @@
 interval: 10s
 services:
-- id: 0
-  name: cpu_consuming
-  command:
-    path: sh
-    args:
-    - -c
-    - while true; do echo > /dev/null; done
-- id: 1
-  name: test
-  command:
-    path: sleep
-    args:
-    - '300'
-- id: 2
-  name: periodic_write
-  command:
-    path: sh
-    args:
-    - -c
-    - while true ; do dd if=/dev/zero of=/var/tmp/test bs=1 count=1048576; sleep 1; done
-- id: 3
-  name: one_shot
-  command:
-    path: ls
-    args:
-    - -la
-- id: 4
-  name: crash
-  command:
-    path: false
-- id: 5
-  name: periodic
-  command:
-   path: echo
-   args: [ world ]
-  schedule: "*/15 * * * * *"
+  - id: 0
+    name: cpu_consuming
+    command:
+      path: sh
+      args:
+        - -c
+        - while true; do echo > /dev/null; done
+  - id: 1
+    name: test
+    command:
+      path: sleep
+      args:
+        - "300"
+  - id: 2
+    name: periodic_write
+    command:
+      path: sh
+      args:
+        - -c
+        - while true ; do dd if=/dev/zero of=/var/tmp/test bs=1 count=1048576; sleep 1; done
+  - id: 3
+    name: one_shot
+    command:
+      path: ls
+      args:
+        - -la
+  - id: 4
+    name: crash
+    command:
+      path: false
+  - id: 5
+    name: periodic
+    command:
+      path: echo
+      args: [world]
+    schedule: "*/15 * * * * *"

@@ -66,7 +66,7 @@ pub struct Monitor {
     #[serde(skip)]
     pub scheduler: Scheduler,
     #[serde(skip)]
-    pub watcher: Mutex<Option<Watcher>>,
+    watcher: Mutex<Option<Watcher>>,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
@@ -92,6 +92,11 @@ impl Default for Monitor {
 }
 
 impl Monitor {
+    #[inline]
+    pub fn new() -> Arc<Self> {
+        Arc::default()
+    }
+
     #[tracing::instrument()]
     pub fn init() -> Result<()> {
         // block signal before spawning threads to apply mask to all threads
@@ -211,7 +216,7 @@ impl Monitor {
         }
     }
 
-    pub fn run(&self) -> Result<()> {
+    pub fn run(self: &Arc<Self>) -> Result<()> {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
             sig.set_handler(blocked_sighandler as usize)?;
@@ -225,6 +230,8 @@ impl Monitor {
             if info.status != Status::Running && info.active {
                 srv.restart();
             }
+            self.add_watch(srv.as_ref())
+                .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
         }
 
         self.scheduler.init(self);
@@ -292,18 +299,40 @@ impl Monitor {
         self.services.get(id).map(|x| Arc::clone(&x))
     }
 
-    pub fn insert(&self, service: Service) -> Arc<Service> {
+    pub fn insert(self: &Arc<Self>, service: Service) -> Arc<Service> {
         let id = service.id;
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
         self.scheduler.reschedule(&service, None);
+        self.add_watch(&service)
+            .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
         service
     }
 
-    pub fn remove(&self, service: &ServiceId) {
-        self.services.remove(service);
+    fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
+        if let Some(watch) = service.watch.as_ref() {
+            let mut guard = self.watcher.lock().unwrap();
+            let watcher = match guard.as_mut() {
+                Some(w) => w,
+                None => guard.insert(Watcher::new(self)?),
+            };
+            watcher.add(&service.id, watch)?;
+        }
+        Ok(())
+    }
+
+    fn remove_watch(self: &Arc<Self>, service_id: &ServiceId) {
+        let mut guard = self.watcher.lock().unwrap();
+        if let Some(watcher) = guard.as_mut() {
+            watcher.remove(service_id);
+        }
+    }
+
+    pub fn remove(self: &Arc<Self>, service_id: &ServiceId) {
+        self.services.remove(service_id);
         /* don't wake, worst case there'll be a spurious wakeup */
-        self.scheduler.remove(service);
+        self.scheduler.remove(service_id);
+        self.remove_watch(service_id);
     }
 
     pub fn stats(&self) -> Arc<Stats> {
@@ -348,7 +377,7 @@ mod tests {
     #[test]
     #[serial(waitpid)]
     fn check() {
-        let mon = Monitor::default();
+        let mon = Arc::<Monitor>::default();
         mon.insert(Service::new("test_stop", Command::new("ls", ["-la"])));
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
         mon.services.iter().for_each(|s| s.start());
@@ -388,7 +417,7 @@ mod tests {
     #[serial(waitpid)]
     /// ensure that signals are unblocked for the child process
     fn sigterm_child() -> Result<()> {
-        let mon = Arc::new(Monitor::default());
+        let mon = Arc::<Monitor>::default();
         let service = mon.insert(Service::new(
             "test_sigterm_child",
             Command::new("sleep", ["300"]),
