@@ -36,8 +36,14 @@ use std::{fmt::Debug, path::Path};
 pub struct GlobSet(Vec<GlobMatcher>);
 
 impl GlobSet {
+    #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn is_match(&self, path: &Path) -> bool {
@@ -136,7 +142,7 @@ impl<'de> Visitor<'de> for GlobSetVisitor {
     {
         let mut ret = GlobSet(
             seq.size_hint()
-                .map_or_else(|| Vec::new(), |size| Vec::with_capacity(size)),
+                .map_or_else(Vec::new, |size| Vec::with_capacity(size)),
         );
         while let Some(value) = seq.next_element::<&str>()? {
             ret.0

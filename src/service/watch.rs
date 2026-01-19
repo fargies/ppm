@@ -69,8 +69,8 @@ impl Watch {
     }
 
     pub fn is_excluded(&self, path: &Path) -> bool {
-        !self.include.as_ref().map_or(false, |g| g.is_match(path))
-            && (self.exclude.as_ref().map_or(false, |g| g.is_match(path))
+        !self.include.as_ref().is_some_and(|g| g.is_match(path))
+            && (self.exclude.as_ref().is_some_and(|g| g.is_match(path))
                 || DEFAULT_EXCLUDE.is_match(path))
     }
 }
@@ -100,9 +100,9 @@ enum OneOrMany<T> {
     Vec(Vec<T>),
 }
 
-impl<T> Into<Vec<T>> for OneOrMany<T> {
-    fn into(self) -> Vec<T> {
-        match self {
+impl<T> From<OneOrMany<T>> for Vec<T> {
+    fn from(val: OneOrMany<T>) -> Self {
+        match val {
             OneOrMany::One(e) => vec![e],
             OneOrMany::Vec(items) => items,
         }
