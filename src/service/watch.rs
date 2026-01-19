@@ -295,19 +295,19 @@ mod tests {
     fn exclusion() -> Result<()> {
         let mut watch = Watch::default();
         assert!(
-            watch.is_excluded(&Path::new(".hidden")),
+            watch.is_excluded(Path::new(".hidden")),
             "files starting with `.` should be excluded"
         );
-        assert!(!watch.is_excluded(&Path::new("visible")));
+        assert!(!watch.is_excluded(Path::new("visible")));
         assert!(
-            watch.is_excluded(&Path::new("/some/path/build-x86")),
+            watch.is_excluded(Path::new("/some/path/build-x86")),
             "dirs starting with `build` should be excluded"
         );
 
         watch.exclude = Some(GlobSet::try_from(["*.k"])?);
         watch.include = Some(GlobSet::try_from(["toto.k"])?);
-        assert!(watch.is_excluded(&Path::new("toto1.k")));
-        assert!(!watch.is_excluded(&Path::new("toto.k")));
+        assert!(watch.is_excluded(Path::new("toto1.k")));
+        assert!(!watch.is_excluded(Path::new("toto.k")));
         Ok(())
     }
 }

@@ -186,8 +186,8 @@ mod tests {
 
         let ret = yaml::from_str::<GlobSet>("['*.c', '**/test']")?;
         assert_eq!(2, ret.len());
-        assert!(ret.is_match(&Path::new("test.c")));
-        assert!(!ret.is_match(&Path::new("test.h")));
+        assert!(ret.is_match(Path::new("test.c")));
+        assert!(!ret.is_match(Path::new("test.h")));
         assert_eq!("- '*.c'\n- '**/test'\n", yaml::to_string(&ret)?.as_str());
 
         tracing::debug!(?ret);
