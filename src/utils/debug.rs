@@ -22,7 +22,12 @@
 
 use std::fmt::{Debug, Formatter, Result};
 
+/// Print an iterable item
 ///
+/// This will consume the iterator, and allows to display containers in a fancy
+/// way, eventually using `map`
+///
+/// - [IntoIterator::Item] must implement [Debug]
 pub struct DebugIter<T>(std::cell::Cell<Option<T>>);
 
 impl<T> Debug for DebugIter<T>

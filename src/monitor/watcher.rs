@@ -105,7 +105,7 @@ impl Watcher {
         }
     }
 
-    fn register(&self, watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
+    fn register(watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
         if level >= watch.max_depth {
             tracing::error!(?path, level, "max watcher recursion level reached");
             return;
@@ -129,19 +129,19 @@ impl Watcher {
                     for file in rd.filter_map(|x| x.ok()) {
                         let path = file.path();
                         if path.is_dir() && !watch.is_excluded(&path) {
-                            self.register(watches, &path, watch, level + 1);
+                            Watcher::register(watches, &path, watch, level + 1);
                         }
                     }
                 }
                 Err(err) => tracing::error!(?err, ?path, "failed to read dir"),
             }
-        } else if path.is_file() {
-            if let Err(err) = watches.add(
+        } else if path.is_file()
+            && let Err(err) = watches.add(
                 path,
                 WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::all(),
-            ) {
-                tracing::error!(?err, ?path, "failed to watch file");
-            }
+            )
+        {
+            tracing::error!(?err, ?path, "failed to watch file");
         }
     }
 
@@ -155,7 +155,7 @@ impl Watcher {
                     "configured path is excluded, add it to the `include` list"
                 );
             } else {
-                self.register(&mut inotify.watches(), &path, watch, 0);
+                Watcher::register(&mut inotify.watches(), path, watch, 0);
             }
         }
 
@@ -233,9 +233,7 @@ impl WatcherThreadContext {
                 check(ret).context("failed to poll")?;
             }
 
-            for i in 0..pfds.len() - 1 {
-                let pfd = &pfds[i];
-
+            for pfd in pfds.iter().take(pfds.len() - 1) {
                 if pfd.revents == 0 {
                     continue;
                 }
