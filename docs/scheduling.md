@@ -29,7 +29,7 @@ ppm start 5
 Scheduling is based on [cron-like](https://en.wikipedia.org/wiki/Cron) rules, as
 implemented by [croner](https://docs.rs/croner/latest/croner/#pattern):
 
-```
+```text
 ┌──────────────── (optional) second (0 - 59)
 │ ┌────────────── minute (0 - 59)
 │ │ ┌──────────── hour (0 - 23)
