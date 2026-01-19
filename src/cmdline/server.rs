@@ -236,7 +236,7 @@ mod tests {
     fn request() -> Result<()> {
         let monitor = Monitor::new();
         monitor.insert(Service::new("test", Command::new("ls", ["-la"])));
-        let server = Server::new(monitor.into(), "127.0.0.1:0")?;
+        let server = Server::new(monitor, "127.0.0.1:0")?;
         let addr = server.socket.local_addr()?;
 
         std::thread::spawn(move || server.run());
