@@ -22,7 +22,6 @@
 
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
-use inotify::{Inotify, WatchMask, Watches};
 use libc::{POLLERR, POLLIN, nfds_t, poll, pollfd};
 use std::{
     fmt::{self, Debug},
@@ -40,13 +39,23 @@ use crate::{
     utils::{debug::DebugIter, libc::check},
 };
 
+#[cfg(target_os = "linux")]
+#[path = "watcher/linux.rs"]
+mod private;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd"
+))]
+#[path = "watcher/unix.rs"]
+mod private;
+
+use private::WatchInfo;
+
 const WAKE_WORD: u8 = b'x';
 const EXIT_WORD: u8 = b'q';
-
-struct WatchInfo {
-    service_id: ServiceId,
-    inotify: Mutex<Inotify>,
-}
 
 type WatchMap = Arc<DashMap<RawFd, Arc<WatchInfo>>>;
 
@@ -105,70 +114,13 @@ impl Watcher {
         }
     }
 
-    fn register(watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
-        if level >= watch.max_depth {
-            tracing::error!(?path, level, "max watcher recursion level reached");
-            return;
-        }
-        tracing::trace!(?path, "adding watch");
-
-        if path.is_dir() {
-            if let Err(err) = watches.add(
-                path,
-                WatchMask::CREATE
-                    | WatchMask::DELETE
-                    | WatchMask::MODIFY
-                    | WatchMask::MOVED_TO
-                    | WatchMask::MOVED_FROM,
-            ) {
-                tracing::error!(?err, ?path, "failed to watch dir");
-            }
-
-            match read_dir(path) {
-                Ok(rd) => {
-                    for file in rd.filter_map(|x| x.ok()) {
-                        let path = file.path();
-                        if path.is_dir() && !watch.is_excluded(&path) {
-                            Watcher::register(watches, &path, watch, level + 1);
-                        }
-                    }
-                }
-                Err(err) => tracing::error!(?err, ?path, "failed to read dir"),
-            }
-        } else if path.is_file()
-            && let Err(err) = watches.add(
-                path,
-                WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::all(),
-            )
-        {
-            tracing::error!(?err, ?path, "failed to watch file");
-        }
-    }
-
     pub fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
-        let inotify = Inotify::init()?;
-
-        for path in watch.paths.iter() {
-            if watch.is_excluded(path) {
-                tracing::warn!(
-                    ?path,
-                    "configured path is excluded, add it to the `include` list"
-                );
-            } else {
-                Watcher::register(&mut inotify.watches(), path, watch, 0);
-            }
-        }
+        let winfo = WatchInfo::new(service_id, watch)?;
 
         // remove duplicates
         self.watchs
             .retain(|_, value| &value.service_id != service_id);
-        self.watchs.insert(
-            inotify.as_raw_fd(),
-            Arc::new(WatchInfo {
-                service_id: *service_id,
-                inotify: Mutex::new(inotify),
-            }),
-        );
+        self.watchs.insert(winfo.as_raw_fd(), Arc::new(winfo));
         self.wake();
 
         Ok(())
@@ -276,32 +228,7 @@ impl WatcherThreadContext {
             None => return Ok(false),
         };
 
-        for event in info
-            .inotify
-            .lock()
-            .unwrap()
-            .read_events(self.buffer.as_mut_slice())?
-        {
-            if let Some(name) = event.name {
-                if service
-                    .watch
-                    .as_ref()
-                    .is_some_and(|w| !w.is_excluded(Path::new(name)))
-                {
-                    tracing::info!(id=service.id, name=service.name, file=?name,
-                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
-                        "file event detected");
-                    // FIXME: should be throttled somehow ? use the scheduler ?
-                    service.restart();
-                } else {
-                    tracing::trace!(id=service.id, name=service.name, file=?name,
-                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
-                        "file event rejected")
-                }
-            }
-        }
-
-        Ok(true)
+        info.process(&service, &mut self.buffer)
     }
 }
 
