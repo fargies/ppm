@@ -75,7 +75,7 @@ impl WatchInfo {
                     for file in rd.filter_map(|x| x.ok()) {
                         let path = file.path();
                         if path.is_dir() && !watch.is_excluded(&path) {
-                            Watcher::register(watches, &path, watch, level + 1);
+                            WatchInfo::register(watches, &path, watch, level + 1);
                         }
                     }
                 }
