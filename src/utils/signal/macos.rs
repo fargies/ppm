@@ -24,43 +24,50 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use dispatch2::{
+    _dispatch_source_type_timer, DispatchObject, DispatchQueue, DispatchRetained, DispatchSource,
+    DispatchTime, GlobalQueueIdentifier,
+};
 use libc::{pthread_kill, pthread_t};
+use std::os::raw::c_void;
 use std::time::Duration;
-use std::{ops::Deref, os::raw::c_void};
 
 use super::libc_check;
-use dispatchr::{QoS, queue, source, time::Time};
 
 pub struct Timer {
-    source: source::Managed,
+    source: DispatchRetained<DispatchSource>,
+    queue: DispatchRetained<DispatchQueue>,
     _interval: Duration,
     _duration: Duration,
 }
 
 impl Default for Timer {
     fn default() -> Self {
-        let queue = queue::global(QoS::Default).unwrap();
-        let tid = unsafe { libc::pthread_self() };
-        let source = source::Managed::create(source::dispatch_source_type_t::timer(), 0, 0, queue);
         unsafe {
-            dispatch_set_context(
-                source.deref() as *const _ as *const c_void,
-                tid as *mut c_void,
+            let queue = DispatchQueue::global_queue(GlobalQueueIdentifier::QualityOfService(
+                dispatch2::DispatchQoS::Default,
+            ));
+            let tid = libc::pthread_self();
+            let source = DispatchSource::new(
+                &_dispatch_source_type_timer as *const _ as *mut _,
+                0,
+                0,
+                Some(queue.as_ref()),
             );
-        }
-        source.set_event_handler_f(dispatch_function);
-        source.resume();
-        tracing::trace!(tid, "timer created");
-        Self {
-            source,
-            _interval: Duration::ZERO,
-            _duration: Duration::ZERO,
+
+            source.set_context(tid as *mut c_void);
+            source.set_event_handler_f(dispatch_function);
+            source.resume();
+            tracing::trace!(tid, "timer created");
+
+            Self {
+                source,
+                queue,
+                _interval: Duration::ZERO,
+                _duration: Duration::ZERO,
+            }
         }
     }
-}
-
-unsafe extern "C" {
-    fn dispatch_set_context(object: *const c_void, context: *mut c_void);
 }
 
 extern "C" fn dispatch_function(_arg: *mut c_void) {
@@ -107,9 +114,9 @@ impl Timer {
         self.source.suspend();
         let interval = self._interval.as_nanos() as u64;
         self.source.set_timer(
-            Time::NOW.new_after(self._duration.as_nanos() as i64),
+            DispatchTime::NOW.time(self._duration.as_nanos() as i64),
             if interval == 0 {
-                Time::FOREVER.0
+                DispatchTime::FOREVER.0
             } else {
                 interval
             },
