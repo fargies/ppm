@@ -30,7 +30,7 @@ use std::{
 };
 
 use crate::{
-    monitor::scheduler::SchedulerEvent,
+    monitor::{scheduler::SchedulerEvent, watcher::WatcherTrait},
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
@@ -314,7 +314,7 @@ impl Monitor {
             let mut guard = self.watcher.lock().unwrap();
             let watcher = match guard.as_mut() {
                 Some(w) => w,
-                None => guard.insert(Watcher::new(self)?),
+                None => guard.insert(Watcher::new(Arc::downgrade(self))?),
             };
             watcher.add(&service.id, watch)?;
         }
