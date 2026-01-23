@@ -32,7 +32,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use super::Monitor;
+use super::{Monitor, WatcherTrait};
 use crate::{
     service::{ServiceId, Watch},
     utils::{debug::DebugIter, libc::check},
@@ -40,8 +40,6 @@ use crate::{
 
 use crate::service::Service;
 
-use super::*;
-use anyhow::Result;
 use inotify::{Inotify, WatchMask, Watches};
 
 const WAKE_WORD: u8 = b'x';
@@ -49,44 +47,16 @@ const EXIT_WORD: u8 = b'q';
 
 type WatchMap = Arc<DashMap<RawFd, Arc<WatchInfo>>>;
 
+pub type Watcher = InotifyWatcher;
+
 /// Inotify based directory watcher
-pub struct Watcher {
+pub struct InotifyWatcher {
     tx: PipeWriter,
     join_handle: Option<JoinHandle<()>>,
     watchs: WatchMap,
 }
 
-impl Watcher {
-    /// Create a new [Watcher] object
-    ///
-    /// This does not register services
-    pub fn new(monitor: &Arc<Monitor>) -> Result<Self> {
-        {
-            let (rx, tx) = pipe()?;
-            let mut ret = Self {
-                tx,
-                join_handle: None,
-                watchs: Arc::new(DashMap::new()),
-            };
-
-            let join_handle = {
-                let mut ctx = WatcherThreadContext {
-                    watchs: Arc::clone(&ret.watchs),
-                    rx,
-                    monitor: Arc::downgrade(monitor),
-                    buffer: vec![0; 4096],
-                };
-                std::thread::spawn(move || {
-                    ctx.run()
-                        .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
-                        .unwrap_or_default()
-                })
-            };
-            ret.join_handle = Some(join_handle);
-            Ok(ret)
-        }
-    }
-
+impl InotifyWatcher {
     pub fn wake(&mut self) {
         if let Err(err) = self.tx.write(&[WAKE_WORD]) {
             tracing::error!(?err, "failed to send wake-word");
@@ -103,8 +73,40 @@ impl Watcher {
             }
         }
     }
+}
 
-    pub fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
+impl WatcherTrait for InotifyWatcher {
+    /// Create a new [Watcher] object
+    ///
+    /// This does not register services
+    fn new(monitor: Weak<Monitor>) -> Result<Self> {
+        {
+            let (rx, tx) = pipe()?;
+            let mut ret = Self {
+                tx,
+                join_handle: None,
+                watchs: Arc::new(DashMap::new()),
+            };
+
+            let join_handle = {
+                let mut ctx = WatcherThreadContext {
+                    watchs: Arc::clone(&ret.watchs),
+                    rx,
+                    monitor,
+                    buffer: vec![0; 4096],
+                };
+                std::thread::spawn(move || {
+                    ctx.run()
+                        .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
+                        .unwrap_or_default()
+                })
+            };
+            ret.join_handle = Some(join_handle);
+            Ok(ret)
+        }
+    }
+
+    fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
         let winfo = WatchInfo::new(service_id, watch)?;
 
         // remove duplicates
@@ -116,7 +118,7 @@ impl Watcher {
         Ok(())
     }
 
-    pub fn remove(&mut self, service_id: &ServiceId) {
+    fn remove(&mut self, service_id: &ServiceId) {
         self.watchs
             .retain(|_, value| &value.service_id != service_id);
         self.wake();
@@ -222,30 +224,18 @@ impl WatcherThreadContext {
     }
 }
 
-impl Debug for Watcher {
+impl Debug for InotifyWatcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        struct WatchWrapper<'a>(&'a WatchMap);
-
-        impl Debug for WatchWrapper<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let mut f = f.debug_list();
-                for it in self.0.iter() {
-                    f.entry(&it.service_id);
-                }
-                f.finish()
-            }
-        }
-
         f.debug_struct("Watcher")
             .field(
                 "services",
-                &DebugIter::new(self.watchs.iter().map(|x| x.key)),
+                &DebugIter::new(self.watchs.iter().map(|x| *x.key())),
             )
             .finish()
     }
 }
 
-impl Drop for Watcher {
+impl Drop for InotifyWatcher {
     fn drop(&mut self) {
         self.stop();
     }
@@ -300,7 +290,7 @@ impl WatchInfo {
                     for file in rd.filter_map(|x| x.ok()) {
                         let path = file.path();
                         if path.is_dir() && !watch.is_excluded(&path) {
-                            Watcher::register(watches, &path, watch, level + 1);
+                            WatchInfo::register(watches, &path, watch, level + 1);
                         }
                     }
                 }

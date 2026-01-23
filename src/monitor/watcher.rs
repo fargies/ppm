@@ -32,7 +32,7 @@ use crate::{
 #[path = "watcher/inotify.rs"]
 mod private;
 
-#[cfg(any(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[path = "watcher/fsevents.rs"]
 mod private;
 
