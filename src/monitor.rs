@@ -219,7 +219,7 @@ impl Monitor {
     pub fn run(self: &Arc<Self>) -> Result<()> {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
-            sig.set_handler(blocked_sighandler as usize)?;
+            sig.set_handler(guard_sighandler as usize)?;
         }
         sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| sigset.restore().unwrap());
@@ -340,7 +340,7 @@ impl Monitor {
     }
 }
 
-extern "C" fn blocked_sighandler(sig: libc::c_int) {
+extern "C" fn guard_sighandler(sig: libc::c_int) {
     tracing::error!(
         sig = ?Signal(sig),
         pid = getpid(),
@@ -399,7 +399,7 @@ mod tests {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM;
 
         for sig in &sigset {
-            sig.set_handler(blocked_sighandler as usize)?;
+            sig.set_handler(guard_sighandler as usize)?;
         }
 
         sigset.block()?;

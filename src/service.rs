@@ -89,16 +89,10 @@ impl std::fmt::Debug for Service {
             .field("id", &self.id)
             .field("name", &self.name)
             .field("command", &self.command);
-        if self.schedule.is_some() {
-            binding
-                .field(
-                    "schedule",
-                    &format_args!("{}", self.schedule.as_ref().unwrap()),
-                )
-                .finish()
-        } else {
-            binding.field("schedule", &self.schedule).finish()
+        if let Some(schedule) = &self.schedule {
+            binding.field("schedule", schedule);
         }
+        binding.finish()
     }
 }
 

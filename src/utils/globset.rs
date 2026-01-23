@@ -140,10 +140,7 @@ impl<'de> Visitor<'de> for GlobSetVisitor {
     where
         A: SeqAccess<'de>,
     {
-        let mut ret = GlobSet(
-            seq.size_hint()
-                .map_or_else(Vec::new, |size| Vec::with_capacity(size)),
-        );
+        let mut ret = GlobSet(seq.size_hint().map_or_else(Vec::new, Vec::with_capacity));
         while let Some(value) = seq.next_element::<&str>()? {
             ret.0
                 .push(Glob::new(value).map_err(Error::custom)?.compile_matcher());
