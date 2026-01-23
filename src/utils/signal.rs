@@ -341,7 +341,7 @@ mod tests {
         sigset.unblock()
     }
 
-    extern "C" fn blocked_sighandler(sig: libc::c_int) {
+    extern "C" fn guard_sighandler(sig: libc::c_int) {
         panic!("blocked signal caught: {}", sig);
     }
 
@@ -351,7 +351,7 @@ mod tests {
         let sigset = SignalSet::empty() + SIGALRM;
         sigset.block()?;
         for sig in &sigset {
-            sig.set_handler(blocked_sighandler as usize)?;
+            sig.set_handler(guard_sighandler as *const () as usize)?;
         }
 
         #[cfg(target_os = "linux")]

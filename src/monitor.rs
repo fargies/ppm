@@ -219,7 +219,7 @@ impl Monitor {
     pub fn run(self: &Arc<Self>) -> Result<()> {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
-            sig.set_handler(guard_sighandler as usize)?;
+            sig.set_handler(guard_sighandler as *const () as usize)?;
         }
         sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| sigset.restore().unwrap());
@@ -399,7 +399,7 @@ mod tests {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM;
 
         for sig in &sigset {
-            sig.set_handler(guard_sighandler as usize)?;
+            sig.set_handler(guard_sighandler as *const () as usize)?;
         }
 
         sigset.block()?;
