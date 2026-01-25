@@ -106,4 +106,4 @@ jobs:
               uses: https://gitea.com/actions/checkout@v5
             - name: Build website
               working-directory: website
-              run: npm run install && npm run build
+              run: npm install && npm run build
