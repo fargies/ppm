@@ -102,6 +102,8 @@ jobs:
     website:
         runs-on: ubuntu-latest
         steps:
+            - name: Fetch sources
+              uses: https://gitea.com/actions/checkout@v5
             - name: Build website
               working-directory: website
               run: npm run install && npm run build
