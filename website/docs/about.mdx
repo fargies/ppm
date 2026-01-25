@@ -1,0 +1,52 @@
+---
+head:
+    - - script
+      - async: ""
+        defer: ""
+        src: https://buttons.github.io/buttons.js
+---
+
+# About
+
+**PPM** (**P**artner **P**rocess **M**onitor) is a process-monitoring application
+designed to run and supervise processes inside [Docker](https://www.docker.com/)
+containers.
+
+![ppm logo](/icon.svg)
+
+It aims to be **low-overhead** and **low-footprint**, with ease of use as a core
+principle, while still offering optional advanced features such as:
+
+- [Resource Usage Reporting](/resource_usage)
+- [File Change Monitoring](/file_monitoring)
+- [Cron-like Scheduling](/scheduling)
+
+## Why “PPM”?
+
+**PPM** stands for **P**artner **P**rocess **M**onitor. _Partner_ refers to a
+personal suite of tools and utilities used to scan and monitor networks, desktops,
+files, and more, written in different programming languages.
+
+After evaluating existing solutions—most notably [pm2](https://pm2.keymetrics.io),
+which is written in [Node.js](https://nodejs.org), as well as alternatives like
+[pmc](https://pmc.dev)—none fully matched my requirements.
+
+As a result, I decided to build a
+**minimalist yet feature-rich process monitoring tool**
+in [Rust](https://www.rust-lang.org).
+
+## Contribution and bugs
+
+Reuse and derivative works are permitted, provided that the original authorship
+is preserved.
+
+Contributions are welcome, as long as they align with the project’s mindset: a
+small footprint and a user-friendly design.
+
+Any bugs encountered should be reported via the
+[GitHub issues page](https://github.com/fargies/ppm/issues) for this repository,
+or you may contact me directly at [fargier.sylvain@gmail.com](<fargier.sylvain@gmail.com>).
+
+If you find this project useful or would like to share feedback, feel free to
+reach out or show your support by adding a
+[<i class="bi bi-star"></i> star](https://github.com/fargies/ppm) on GitHub.

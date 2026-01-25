@@ -5,3 +5,4 @@
 - [x] add support for "watchs"
 - [] add throttle for "watchs"
 - [] add support for logs and log rotation
+- [] fix watchs to filter filenames on MacOS, add a test to ensure this
