@@ -1,0 +1,12 @@
+[
+  {
+    "text": "Quick Start",
+    "link": "/quick_start/installation",
+    "activeMatch": "/quick_start/"
+  },
+  {
+    "text": "About",
+    "link": "/about",
+    "activeMatch": "/about/"
+  }
+]

@@ -36,7 +36,7 @@ The following restrictions apply:
 Files and paths filtering is based on [globbing](https://www.man7.org/linux/man-pages/man7/glob.7.html)
 rules, as implemented by [globset](https://docs.rs/globset/latest/globset/#syntax).
 
-**Important:** globbing is applied in two stages:
+**Important:** on Linux globbing is applied in two stages:
 
 1. On the path when directories are initially registered for watching.
 2. On the file-name when a change is detected.

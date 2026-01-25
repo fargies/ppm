@@ -98,3 +98,10 @@ jobs:
                       *.deb
                       *.pkg.tar.zst
         needs: [build-archlinux, build-debian]
+
+    website:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Build website
+              working-directory: website
+              run: npm run install && npm run build
