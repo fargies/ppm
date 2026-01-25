@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn temp_file() {
         let path: PathBuf = {
-            let file = MkTemp::file("test").unwrap();
+            let file = MkTemp::file("test_file").unwrap();
             let path: &PathBuf = file.as_ref();
 
             assert!(path.exists());
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn temp_dir() {
         let path: PathBuf = {
-            let file = MkTemp::dir("test").unwrap();
+            let file = MkTemp::dir("test_dir").unwrap();
             let path: &PathBuf = file.as_ref();
 
             assert!(path.exists());
