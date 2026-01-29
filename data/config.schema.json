@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.gremory.org/gitea/fargie_s/ppm/src/branch/master/data/schema.json",
+  "title": "PPM configuration schema",
+  "description": "Configuration schema for Partner Process Monitoring tool",
+  "type": "object",
+  "properties": {
+    "services": {
+      "description": "Services to spawn and monitor",
+      "type": "array",
+      "items": { "$ref": "#/$defs/service" }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "command": { "$ref": "#/$defs/command" },
+        "schedule": { "type": "string", "examples": ["*/15 * * * * *"] },
+        "watch": { "$ref": "#/$defs/watch" },
+        "workdir": { "type": "string" }
+      },
+      "required": ["name", "command"]
+    },
+    "command": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object" }
+      },
+      "required": ["path"]
+    },
+    "one_or_many_str": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "watch": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/one_or_many_str",
+          "description": "path or paths list"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "paths": {
+              "$ref": "#/$defs/one_or_many_str",
+              "description": "path or paths list"
+            },
+            "include": {
+              "$ref": "#/$defs/one_or_many_str",
+              "description": "glob patterns"
+            },
+            "exclude": {
+              "$ref": "#/$defs/one_or_many_str",
+              "description": "glob patterns"
+            },
+            "max_depth": { "type": "integer" }
+          },
+          "required": ["paths"]
+        }
+      ]
+    }
+  }
+}
