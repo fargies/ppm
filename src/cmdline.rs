@@ -57,6 +57,9 @@ pub enum Action {
     /// Stop (terminate) the given service (aliases: terminate)
     #[clap(alias = "terminate")]
     Stop { service: String },
+    /// Reschedule a service, flag as active and reschedule (aliases: schedule)
+    #[clap(alias = "schedule")]
+    Reschedule { service: String },
     /// Dump running configuration (aliases: show-config, config)
     #[clap(aliases=["show-config", "config"])]
     ShowConfiguration,
@@ -69,6 +72,12 @@ pub enum Action {
         /// Environment variables
         #[clap(long, short, value_name = "NAME=VALUE", value_parser = parse_key_val::<String, String>)]
         env: Vec<(String, String)>,
+        /// Service schedule (cron-like)
+        #[clap(long, short)]
+        schedule: Option<String>,
+        /// Workdir
+        #[clap(long, short)]
+        workdir: Option<String>,
         /// Command to run
         #[clap(last = true)]
         command: Vec<String>,

@@ -29,7 +29,7 @@ services:
   - id: 4
     name: crash
     command:
-      path: "false"
+      path: false
   - id: 5
     name: periodic
     command:

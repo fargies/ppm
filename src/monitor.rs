@@ -60,6 +60,8 @@ pub struct Monitor {
     #[serde(with = "humantime_serde")]
     pub restart_interval: std::time::Duration,
     #[serde(with = "humantime_serde")]
+    pub watch_restart_interval: std::time::Duration,
+    #[serde(with = "humantime_serde")]
     pub clock_check_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
@@ -73,6 +75,8 @@ pub struct Monitor {
     _stats: Mutex<Arc<Stats>>,
     #[serde(skip)]
     start_time: Instant,
+    #[serde(skip)]
+    tid: Mutex<Option<libc::pthread_t>>,
 }
 
 impl Default for Monitor {
@@ -80,6 +84,7 @@ impl Default for Monitor {
         Self {
             stats_interval: Duration::from_secs(10),
             restart_interval: Duration::from_secs(1),
+            watch_restart_interval: Duration::from_secs(3),
             clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
             scheduler: Default::default(),
@@ -87,6 +92,7 @@ impl Default for Monitor {
             sysinfo: Default::default(),
             _stats: Default::default(),
             start_time: Instant::now(),
+            tid: Default::default(),
         }
     }
 }
@@ -158,8 +164,12 @@ impl Monitor {
                     service.set_running(pid);
                 }
 
-                if let Status::Crashed = service.info().status {
-                    self.scheduler.schedule_restart(&service, self);
+                let info = service.info();
+                if let Status::Crashed = info.status {
+                    self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
+                        id: service.id,
+                        instant: self.next_restart(&info),
+                    });
                 }
             } else {
                 tracing::warn!(pid, "unknown process");
@@ -169,7 +179,7 @@ impl Monitor {
 
     fn next_restart(&self, info: &Info) -> Instant {
         info.end_time.unwrap_or_else(Instant::now)
-            + self.restart_interval * (1 << (info.crashed - 1))
+            + self.restart_interval * (1 << info.crashed.saturating_sub(1))
     }
 
     #[tracing::instrument(skip(self))]
@@ -186,7 +196,8 @@ impl Monitor {
                         tracing::warn!(id, "unknown service");
                     }
                 }
-                SchedulerEvent::ServiceRestart { id, .. } => {
+                SchedulerEvent::ServiceRestart { id, .. }
+                | SchedulerEvent::WatchServiceRestart { id, .. } => {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
                             service.restart();
@@ -217,12 +228,16 @@ impl Monitor {
     }
 
     pub fn run(self: &Arc<Self>) -> Result<()> {
+        *self.tid.lock().unwrap() = Some(gettid());
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
             sig.set_handler(guard_sighandler as *const () as usize)?;
         }
         sigset.block()?;
-        let _ondrop = utils::OnDrop::new(|| sigset.restore().unwrap());
+        let _ondrop = utils::OnDrop::new(|| {
+            self.tid.lock().unwrap().take();
+            sigset.restore().unwrap();
+        });
 
         for srv in self.services.iter() {
             let info = srv.info();
@@ -303,12 +318,68 @@ impl Monitor {
         let id = service.id;
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
-        self.scheduler.reschedule(&service, None);
+
+        let wake = if service.schedule.is_some() {
+            self.scheduler.reschedule(&service, None)
+        } else if service.info().status != Status::Running {
+            self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
+                id: service.id,
+                instant: Instant::now(),
+            })
+        } else {
+            false
+        };
+        if wake {
+            self.wake();
+        }
+
         self.add_watch(&service)
             .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
         service
     }
 
+    /// Schedule a service restart
+    ///
+    /// - Service is restarted by the [Monitor] enforcing rules such as child
+    ///   subreapers.
+    /// - Scheduled service will still be executed (in addition to being rescheduled).
+    ///   use [reschedule] to activate but not run.
+    pub fn restart(self: &Arc<Self>, service: &Service) {
+        service.set_active(true);
+        let mut wake = self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
+            id: service.id,
+            instant: Instant::now(),
+        });
+        if service.schedule.is_some() {
+            wake |= self.scheduler.reschedule(service, None);
+        }
+        if wake {
+            self.wake();
+        }
+    }
+
+    /// Reschedule a service
+    ///
+    /// Reactivates and schedules a scheduled service
+    pub fn reschedule(self: &Arc<Self>, service: &Service) {
+        service.set_active(true);
+        if service.schedule.is_some() && self.scheduler.reschedule(service, None) {
+            self.wake();
+        }
+    }
+
+    pub fn on_watch_event(self: &Arc<Self>, service: &Service) {
+        if self.scheduler.enqueue(SchedulerEvent::WatchServiceRestart {
+            id: service.id,
+            instant: Instant::now() + self.watch_restart_interval,
+        }) {
+            self.wake();
+        }
+    }
+
+    /// Add watches for the given service
+    ///
+    /// Will remove existing watches and re-created it
     fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
         if let Some(watch) = service.watch.as_ref() {
             let mut guard = self.watcher.lock().unwrap();
@@ -321,6 +392,7 @@ impl Monitor {
         Ok(())
     }
 
+    /// Remove watches related to given service
     fn remove_watch(self: &Arc<Self>, service_id: &ServiceId) {
         let mut guard = self.watcher.lock().unwrap();
         if let Some(watcher) = guard.as_mut() {
@@ -328,6 +400,7 @@ impl Monitor {
         }
     }
 
+    /// Remove service
     pub fn remove(self: &Arc<Self>, service_id: &ServiceId) {
         self.services.remove(service_id);
         /* don't wake, worst case there'll be a spurious wakeup */
@@ -335,8 +408,19 @@ impl Monitor {
         self.remove_watch(service_id);
     }
 
+    /// Retrieve latest stats
     pub fn stats(&self) -> Arc<Stats> {
         Arc::clone(&self._stats.lock().unwrap())
+    }
+
+    #[tracing::instrument(level = "TRACE", skip(self))]
+    fn wake(&self) {
+        let tid = self.tid.lock().unwrap();
+        if let Some(tid) = tid.as_ref()
+            && let Err(err) = Signal::kill_thread(*tid, SIGALRM)
+        {
+            tracing::trace!(?err, "failed to wake monitor");
+        }
     }
 }
 

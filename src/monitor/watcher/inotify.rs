@@ -38,8 +38,6 @@ use crate::{
     utils::{debug::DebugIter, libc::check},
 };
 
-use crate::service::Service;
-
 use inotify::{Inotify, WatchMask, Watches};
 
 const WAKE_WORD: u8 = b'x';
@@ -183,7 +181,7 @@ impl WatcherThreadContext {
                 }
 
                 match self.get_info(pfd.fd) {
-                    Some(info) => update_pfds = self.process(&info)?,
+                    Some(info) => update_pfds = info.process(&self.monitor()?, &mut self.buffer)?,
                     None => update_pfds = true,
                 };
 
@@ -212,15 +210,6 @@ impl WatcherThreadContext {
                 }
             }
         }
-    }
-
-    fn process(&mut self, info: &Arc<WatchInfo>) -> Result<bool> {
-        let service = match self.monitor()?.get(&info.service_id) {
-            Some(service) => service,
-            None => return Ok(false),
-        };
-
-        info.process(&service, &mut self.buffer)
     }
 }
 
@@ -306,7 +295,12 @@ impl WatchInfo {
         }
     }
 
-    pub fn process(&self, service: &Arc<Service>, buffer: &mut Vec<u8>) -> Result<bool> {
+    pub fn process(&self, monitor: &Arc<Monitor>, buffer: &mut Vec<u8>) -> Result<bool> {
+        let service = match monitor.get(&self.service_id) {
+            Some(service) => service,
+            None => return Ok(false),
+        };
+
         for event in self
             .inotify
             .lock()
@@ -322,8 +316,7 @@ impl WatchInfo {
                     tracing::info!(id=service.id, name=service.name, file=?name,
                         event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
                         "file event detected");
-                    // FIXME: should be throttled somehow ? use the scheduler ?
-                    service.restart();
+                    monitor.on_watch_event(&service);
                 } else {
                     tracing::trace!(id=service.id, name=service.name, file=?name,
                         event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),

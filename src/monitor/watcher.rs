@@ -68,7 +68,10 @@ mod tests {
     fn watch() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch")?;
 
-        let mon = Arc::new(Monitor::default());
+        let mon = Arc::new(Monitor {
+            watch_restart_interval: Duration::from_millis(100),
+            ..Default::default()
+        });
         let service = {
             let mut srv = Service::new("test", Command::new("sleep", ["300"]));
             srv.watch = Some(yaml::from_str(
@@ -88,7 +91,7 @@ mod tests {
         let file = temp.as_ref().join("test_file");
         tracing::trace!(?file, "creating test file");
         File::create(file)?;
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(300));
         assert_eq!(service.info().restarts, 2);
 
         Signal::kill(getpid(), signal::SIGTERM)?;
