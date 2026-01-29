@@ -128,47 +128,10 @@ impl Monitor {
     fn waitpid(&self, pid: libc::pid_t) {
         while let Some((pid, status)) = waitpid(pid, false) {
             if let Some(service) = self.find_by_pid(pid) {
-                if libc::WIFSIGNALED(status) {
-                    let signal = Signal(libc::WTERMSIG(status));
-                    tracing::info!(
-                        id = service.id,
-                        name = service.name,
-                        pid,
-                        ?signal,
-                        "service terminated by signal"
-                    );
-
-                    if signal == SIGTERM {
-                        service.set_finished();
-                    } else {
-                        service.set_crashed();
-                    }
-                } else if libc::WIFEXITED(status) {
-                    let code = libc::WEXITSTATUS(status);
-                    tracing::info!(
-                        id = service.id,
-                        name = service.name,
-                        pid,
-                        code,
-                        "service exited"
-                    );
-
-                    if code == 0 {
-                        service.set_finished();
-                    } else {
-                        service.set_crashed();
-                    }
-                } else if libc::WIFSTOPPED(status) {
-                    service.set_stopped();
-                } else if libc::WIFCONTINUED(status) {
-                    service.set_running(pid);
-                }
-
-                let info = service.info();
-                if let Status::Crashed = info.status {
+                if let Status::Crashed = service.set_terminated(pid, status) {
                     self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
                         id: service.id,
-                        instant: self.next_restart(&info),
+                        instant: self.next_restart(&service.info()),
                     });
                 }
             } else {

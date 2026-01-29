@@ -23,6 +23,7 @@
 
 use anyhow::{Result, anyhow};
 use croner::Cron;
+use libc::{WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WTERMSIG, c_int, pid_t};
 use serde::{Deserialize, Serialize};
 use std::process;
 use std::sync::{
@@ -31,6 +32,7 @@ use std::sync::{
 };
 use std::{os::unix::process::CommandExt, time::Duration};
 
+use crate::utils::libc::waitpid;
 use crate::utils::signal::{self, SIGTERM, Signal, SignalSet};
 
 mod command;
@@ -202,10 +204,10 @@ impl Service {
 
         if let Some(pid) = self.info().pid {
             tracing::debug!(pid, "trying to stop");
-            if self.terminate(SIGTERM, &Duration::from_secs(5)) {
-                tracing::info!(pid = pid, "process terminated");
-            } else if self.terminate(signal::SIGKILL, &Duration::from_secs(10)) {
-                tracing::info!(pid = pid, "process killed");
+            if self.terminate(pid, SIGTERM, &Duration::from_secs(5)) {
+                tracing::info!(pid, "process terminated");
+            } else if self.terminate(pid, signal::SIGKILL, &Duration::from_secs(10)) {
+                tracing::info!(pid, "process killed");
             } else {
                 tracing::error!("failed to kill process");
             }
@@ -219,25 +221,67 @@ impl Service {
     /// This will not update the service `info`, the `Monitor` thread should
     /// do using `waitpid`
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
-    fn terminate(&self, signal: Signal, timeout: &Duration) -> bool {
-        if let Some(pid) = self.info().pid {
-            if Signal::kill(pid, signal).is_err() {
-                // already dead
-                return true;
-            }
+    fn terminate(&self, pid: pid_t, signal: Signal, timeout: &Duration) -> bool {
+        if Signal::kill(pid, signal).is_err() {
+            // already dead
+            return true;
+        }
 
-            let start = std::time::Instant::now();
-            loop {
-                if !Signal::exists(pid) || self.info().pid.is_none() {
-                    return true;
-                } else if &start.elapsed() < timeout {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                } else {
-                    return false;
-                }
+        let start = std::time::Instant::now();
+        while self.info().pid.is_some_and(|p| pid == p) {
+            if let Some((pid, status)) = waitpid(pid, false) {
+                self.set_terminated(pid, status);
+                return true;
+            } else if &start.elapsed() < timeout {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            } else {
+                return false;
             }
         }
         true
+    }
+
+    pub fn set_terminated(&self, pid: pid_t, status: c_int) -> Status {
+        let mut guard = self._info.lock().unwrap();
+        if guard.pid.is_none_or(|p| p != pid) {
+            tracing::trace!(
+                id = self.id,
+                name = self.name,
+                terminated_pid = pid,
+                pid = guard.pid,
+                "invalid pid for service"
+            );
+        } else if WIFSIGNALED(status) {
+            let signal = Signal(WTERMSIG(status));
+            tracing::info!(
+                id = self.id,
+                name = self.name,
+                pid,
+                ?signal,
+                "service terminated by signal"
+            );
+
+            if signal == SIGTERM {
+                Arc::make_mut(&mut guard).set_finished();
+            } else {
+                Arc::make_mut(&mut guard).set_crashed();
+            }
+        } else if WIFEXITED(status) {
+            let code = WEXITSTATUS(status);
+            tracing::info!(id = self.id, name = self.name, pid, code, "service exited");
+
+            if code == 0 {
+                Arc::make_mut(&mut guard).set_finished();
+            } else {
+                Arc::make_mut(&mut guard).set_crashed();
+            }
+        } else if WIFSTOPPED(status) {
+            Arc::make_mut(&mut guard).set_stopped();
+        } else if WIFCONTINUED(status) {
+            Arc::make_mut(&mut guard).set_running(pid);
+        }
+
+        guard.status
     }
 
     /// Set service as [Status::Crashed]
@@ -271,7 +315,7 @@ impl Service {
     ///
     /// Must be called from [Monitor]
     #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
-    pub fn set_running(&self, pid: libc::pid_t) {
+    pub fn set_running(&self, pid: pid_t) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_running(pid);
     }
