@@ -18,7 +18,11 @@
         "id": { "type": "integer" },
         "name": { "type": "string" },
         "command": { "$ref": "#/$defs/command" },
-        "schedule": { "type": "string", "examples": ["*/15 * * * * *"] },
+        "schedule": {
+          "type": "string",
+          "examples": ["*/15 * * * * *", "59 23 * APR,MAY SAT,SUN"],
+          "pattern": "(?i)([0-9*/,?-]+)? [0-9*/,?-]+ [0-9*/,?-]+ [0-9*/,?-]+ ([0-9*/,?-]+|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) ([0-9*/,?-]+|-SUN|SUN|MON|TUE|WED|THU|FRI|SAT)"
+        },
         "watch": { "$ref": "#/$defs/watch" },
         "workdir": { "type": "string" }
       },
