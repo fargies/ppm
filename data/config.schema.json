@@ -5,12 +5,17 @@
   "description": "Configuration schema for Partner Process Monitoring tool",
   "type": "object",
   "properties": {
+    "stats_interval": { "$ref": "#/$defs/duration" },
+    "restart_interval": { "$ref": "#/$defs/duration" },
+    "watch_restart_interval": { "$ref": "#/$defs/duration" },
+    "clock_check_interval": { "$ref": "#/$defs/duration" },
     "services": {
       "description": "Services to spawn and monitor",
       "type": "array",
       "items": { "$ref": "#/$defs/service" }
     }
   },
+  "required": ["services"],
   "$defs": {
     "service": {
       "type": "object",
@@ -72,6 +77,10 @@
           "required": ["paths"]
         }
       ]
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "([0-9]+year(s)?)? ([0-9]+month(s)?)? ([0-9]+day(s)?)? ([0-9]+h)? ([0-9]+m)? ([0-9]+s)? ([0-9]+ms)?"
     }
   }
 }

@@ -180,7 +180,14 @@ impl Server {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
 
-                service.restart();
+                monitor.restart(&service);
+                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+            }
+            Action::Reschedule { service } => {
+                let service = Server::find_service(monitor, &service)
+                    .with_context(|| format!("no such service \"{service}\""))?;
+
+                monitor.reschedule(&service);
                 serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }
             Action::Stop { service } => {
@@ -195,7 +202,13 @@ impl Server {
             Action::ShowScheduler => {
                 serde_json::to_writer(stream, &ActionResult::Ok(monitor.scheduler.dump()))?;
             }
-            Action::Add { name, env, command } => {
+            Action::Add {
+                name,
+                env,
+                command,
+                schedule,
+                workdir,
+            } => {
                 let mut args = command.into_iter();
                 let path = args.next().context("command is empty")?;
 
@@ -203,8 +216,11 @@ impl Server {
                 if !env.is_empty() {
                     service.command.env = Some(env.into_iter().collect());
                 }
+                if let Some(schedule) = schedule {
+                    service.schedule = Some(schedule.parse()?);
+                }
+                service.workdir = workdir;
 
-                service.start();
                 monitor.insert(service);
                 serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }

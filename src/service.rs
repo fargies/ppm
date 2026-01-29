@@ -184,6 +184,11 @@ impl Service {
         }
     }
 
+    pub fn set_active(&self, value: bool) {
+        let mut guard = self._info.lock().unwrap();
+        Arc::make_mut(&mut guard).active = value;
+    }
+
     /// Stop the process
     ///
     /// May timeout when called from [Monitor] thread, waiting for zombie to be

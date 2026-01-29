@@ -56,6 +56,11 @@ pub enum SchedulerEvent {
         #[serde(with = "serializers::instant")]
         instant: Instant,
     },
+    WatchServiceRestart {
+        id: ServiceId,
+        #[serde(with = "serializers::instant")]
+        instant: Instant,
+    },
     Sysinfo {
         #[serde(with = "serializers::instant")]
         instant: Instant,
@@ -69,21 +74,40 @@ pub enum SchedulerEvent {
 impl SchedulerEvent {
     pub fn id(&self) -> Option<ServiceId> {
         match self {
-            SchedulerEvent::ServiceSchedule { id, .. }
-            | SchedulerEvent::ServiceRestart { id, .. } => Some(*id),
+            Self::ServiceSchedule { id, .. }
+            | Self::ServiceRestart { id, .. }
+            | Self::WatchServiceRestart { id, .. } => Some(*id),
             _ => None,
         }
     }
 
     pub fn instant(&self) -> &Instant {
         match self {
-            Self::ServiceSchedule {
-                instant: schedule, ..
-            } => schedule,
-            Self::ServiceRestart {
-                instant: schedule, ..
-            } => schedule,
+            Self::ServiceSchedule { instant, .. }
+            | Self::ServiceRestart { instant, .. }
+            | Self::WatchServiceRestart { instant, .. } => instant,
+
             Self::Sysinfo { instant } | Self::ClockCheck { instant } => instant,
+        }
+    }
+
+    pub fn is_source_eq(&self, other: &SchedulerEvent) -> bool {
+        match self {
+            Self::ServiceSchedule { id, .. } => {
+                matches!(other, Self::ServiceSchedule { id: other_id, .. } if id == other_id)
+            }
+            Self::ServiceRestart { id, .. } => {
+                matches!(other, Self::ServiceRestart { id: other_id, .. } if id == other_id)
+            }
+            Self::WatchServiceRestart { id, .. } => {
+                matches!(other, Self::WatchServiceRestart { id: other_id, .. } if id == other_id)
+            }
+            Self::Sysinfo { .. } => {
+                matches!(other, Self::Sysinfo { .. })
+            }
+            Self::ClockCheck { .. } => {
+                matches!(other, Self::ClockCheck { .. })
+            }
         }
     }
 }
@@ -125,8 +149,10 @@ impl Scheduler {
     }
 
     /// (re)schedule a period service
+    ///
+    /// - returns true if the enqueued item is the most prioritary in the queue
     #[tracing::instrument(fields(id = service.id, name = service.name), skip(self, service))]
-    pub fn reschedule(&self, service: &Service, last: Option<DateTime<Local>>) {
+    pub fn reschedule(&self, service: &Service, last: Option<DateTime<Local>>) -> bool {
         if let Some(schedule) = service.schedule.as_ref() {
             if let Ok(next) = schedule.find_next_occurrence(
                 &last
@@ -134,24 +160,16 @@ impl Scheduler {
                 false,
             ) {
                 tracing::info!(?next);
-                self.queue().push(SchedulerEvent::ServiceSchedule {
+                return self.enqueue(SchedulerEvent::ServiceSchedule {
                     id: service.id,
                     date_time: next,
                     instant: from_systime(&next.into()),
-                })
+                });
             } else {
                 tracing::error!("failed to get schedule for service");
             }
         }
-    }
-
-    /// schedule a crashed service restart
-    #[tracing::instrument(fields(id = service.id, name = service.name), skip(self, service, monitor))]
-    pub fn schedule_restart(&self, service: &Service, monitor: &Monitor) {
-        self.queue().push(SchedulerEvent::ServiceRestart {
-            id: service.id,
-            instant: monitor.next_restart(&service.info()),
-        });
+        false
     }
 
     pub fn peek(&self) -> Option<Duration> {
@@ -160,21 +178,23 @@ impl Scheduler {
             .map(|event| event.instant().saturating_duration_since(Instant::now()))
     }
 
-    pub fn enqueue(&self, event: SchedulerEvent) {
-        self.queue().push(event)
+    /// enqueue a [SchedulerEvent]
+    ///
+    /// - All [SchedulerEvent] from the same source (identical type and id) are
+    ///   removed before this one is injected
+    /// - returns true if the enqueued item is the most prioritary in the queue
+    #[tracing::instrument(level = "TRACE", skip(self))]
+    pub fn enqueue(&self, event: SchedulerEvent) -> bool {
+        let stamp = *event.instant();
+        let mut queue = self.queue();
+        queue.retain(|evt| !evt.is_source_eq(&event));
+        queue.push(event);
+        queue.peek().is_some_and(|e| e.instant() == &stamp)
     }
 
     pub fn remove(&self, service: &ServiceId) {
-        let mut new_queue = BinaryHeap::<SchedulerEvent>::with_capacity(self.queue().capacity());
-        let mut guard = self.queue();
-        std::mem::swap(&mut new_queue, &mut guard);
-
-        for event in new_queue
-            .drain()
-            .filter(|event| event.id().is_none_or(|id| &id != service))
-        {
-            guard.push(event);
-        }
+        self.queue()
+            .retain(|evt| evt.id().is_none_or(|id| &id != service));
     }
 
     #[inline]
