@@ -240,14 +240,8 @@ impl WatchInfo {
         let inotify = Inotify::init()?;
 
         for path in watch.paths.iter() {
-            if watch.is_excluded(path) {
-                tracing::warn!(
-                    ?path,
-                    "configured path is excluded, add it to the `include` list"
-                );
-            } else {
-                WatchInfo::register(&mut inotify.watches(), path, watch, 0);
-            }
+            /* configured paths are never excluded */
+            WatchInfo::register(&mut inotify.watches(), path, watch, 0);
         }
         Ok(Self {
             service_id: *service_id,
@@ -288,7 +282,7 @@ impl WatchInfo {
         } else if path.is_file()
             && let Err(err) = watches.add(
                 path,
-                WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::all(),
+                WatchMask::MODIFY | WatchMask::DELETE_SELF | WatchMask::MOVE_SELF,
             )
         {
             tracing::error!(?err, ?path, "failed to watch file");
@@ -307,20 +301,28 @@ impl WatchInfo {
             .unwrap()
             .read_events(buffer.as_mut_slice())?
         {
-            if let Some(name) = event.name {
-                if service
-                    .watch
-                    .as_ref()
-                    .is_some_and(|w| !w.is_excluded(Path::new(name)))
-                {
-                    tracing::info!(id=service.id, name=service.name, file=?name,
-                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
+            match event.name {
+                Some(name) => {
+                    if service
+                        .watch
+                        .as_ref()
+                        .is_some_and(|w| !w.is_excluded(Path::new(name)))
+                    {
+                        tracing::info!(id = service.id, name = service.name, file = ?name,
+                            event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
+                            "dir event detected");
+                        monitor.on_watch_event(&service);
+                    } else {
+                        tracing::trace!(id = service.id, name = service.name, file = ?name,
+                            event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
+                            "dir event rejected")
+                    }
+                }
+                None => {
+                    tracing::info!(id = service.id, name = service.name,
+                        event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
                         "file event detected");
                     monitor.on_watch_event(&service);
-                } else {
-                    tracing::trace!(id=service.id, name=service.name, file=?name,
-                        event=?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
-                        "file event rejected")
                 }
             }
         }

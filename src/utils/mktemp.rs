@@ -25,6 +25,7 @@
 
 use std::{
     env::temp_dir,
+    fmt::Display,
     fs::{File, create_dir},
     io::{ErrorKind, Result},
     ops::{Deref, DerefMut},
@@ -40,6 +41,12 @@ pub struct MkTemp();
 pub struct TempFile {
     path: PathBuf,
     file: Option<File>,
+}
+
+impl Display for TempFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}", self.path.display()))
+    }
 }
 
 impl AsRef<PathBuf> for TempFile {
@@ -89,6 +96,12 @@ pub struct TempDir {
 impl AsRef<PathBuf> for TempDir {
     fn as_ref(&self) -> &PathBuf {
         &self.path
+    }
+}
+
+impl Display for TempDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}", self.path.display()))
     }
 }
 

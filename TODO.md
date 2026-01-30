@@ -7,4 +7,4 @@
 - [] add support for logs and log rotation
 - [] fix watchs to filter filenames on MacOS, add a test to ensure this
 - [x] add schedule and workdir options on cli
-- [] allow to monitor single files
+- [x] allow to monitor single files

@@ -133,10 +133,10 @@ impl WatchInfoData {
                 return;
             }
         };
-        if service
-            .watch
-            .as_ref()
-            .is_some_and(|w| !w.is_excluded(Path::new(path)))
+        if let Some(watch) = service.watch
+            && Path::new(path)
+                .file_name()
+                .is_some_and(|name| !watch.is_excluded(name))
         {
             tracing::info!(id=service.id, name=service.name, file=?path,
                 event=?flags,
@@ -172,18 +172,10 @@ impl WatchInfo {
                 .paths
                 .iter()
                 .filter_map(|path| {
-                    if watch.is_excluded(path) {
-                        tracing::warn!(
-                            ?path,
-                            "configured path is excluded, add it to the `include` list"
-                        );
-                        None
-                    } else {
-                        tracing::trace!(?path, "adding watch");
-                        Some(CFString::from_str(
-                            path.as_os_str().to_str().expect("invalid path"),
-                        ))
-                    }
+                    tracing::trace!(?path, "adding watch");
+                    Some(CFString::from_str(
+                        path.as_os_str().to_str().expect("invalid path"),
+                    ))
                 })
                 .collect::<Vec<_>>(),
         );

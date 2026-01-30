@@ -146,7 +146,7 @@ impl Monitor {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn process(&self) {
+    pub fn process(self: &Arc<Self>) {
         for event in self.scheduler.iter() {
             match event {
                 SchedulerEvent::ServiceSchedule { id, date_time, .. } => {
@@ -164,6 +164,8 @@ impl Monitor {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
                             service.restart();
+                            self.add_watch(&service)
+                                .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
                         } else {
                             tracing::warn!(id, "not restarting inactive service");
                         }
