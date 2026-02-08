@@ -30,7 +30,7 @@ use std::{
 };
 
 use crate::{
-    monitor::{scheduler::SchedulerEvent, watcher::WatcherTrait},
+    monitor::{logger::Logger, scheduler::SchedulerEvent, watcher::WatcherTrait},
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
@@ -52,6 +52,8 @@ use scheduler::Scheduler;
 pub mod watcher;
 use watcher::Watcher;
 
+pub mod logger;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Monitor {
@@ -65,6 +67,8 @@ pub struct Monitor {
     pub clock_check_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logger: Option<Logger>,
     #[serde(skip)]
     pub scheduler: Scheduler,
     #[serde(skip)]
@@ -87,6 +91,7 @@ impl Default for Monitor {
             watch_restart_interval: Duration::from_secs(3),
             clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
+            logger: Default::default(),
             scheduler: Default::default(),
             watcher: Default::default(),
             sysinfo: Default::default(),
@@ -153,7 +158,7 @@ impl Monitor {
                     if let Some(service) = self.get(&id)
                         && service.info().active
                     {
-                        service.restart();
+                        service.restart(self.logger.as_ref());
                         self.scheduler.reschedule(&service, Some(date_time));
                     } else {
                         tracing::warn!(id, "unknown service");
@@ -163,7 +168,7 @@ impl Monitor {
                 | SchedulerEvent::WatchServiceRestart { id, .. } => {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
-                            service.restart();
+                            service.restart(self.logger.as_ref());
                             self.add_watch(&service)
                                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
                         } else {
@@ -208,7 +213,7 @@ impl Monitor {
             let info = srv.info();
 
             if info.status != Status::Running && info.active {
-                srv.restart();
+                srv.restart(self.logger.as_ref());
             }
             self.add_watch(srv.as_ref())
                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
@@ -429,7 +434,7 @@ mod tests {
         let mon = Arc::<Monitor>::default();
         mon.insert(Service::new("test_stop", Command::new("ls", ["-la"])));
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
-        mon.services.iter().for_each(|s| s.start());
+        mon.services.iter().for_each(|s| s.start(None));
         std::thread::sleep(std::time::Duration::from_millis(300));
         mon.on_sigchld();
 
@@ -454,7 +459,7 @@ mod tests {
         sigset.block()?;
         let srv = Service::new("test_crash", Command::new("false", ["-la"]));
 
-        srv.start();
+        srv.start(None);
 
         assert_eq!(sigset.wait()?, SIGCHLD);
         Monitor::default().on_sigchld();

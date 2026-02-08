@@ -137,7 +137,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter
-            .write_str("a watch object (ex: `{ \"include\": \"*\", \"paths\": [ \"/tmp\" ] })`")
+            .write_str("a watch object (ex: `{ \"include\": \"*\", \"paths\": [ \"/tmp\" ] }`)")
     }
 
     fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>

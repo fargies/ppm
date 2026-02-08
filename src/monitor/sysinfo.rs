@@ -196,7 +196,7 @@ mod tests {
         let mon = Arc::new(Monitor::default());
         {
             let srv = Service::new("test", Command::new("sleep", ["300"]));
-            srv.start();
+            srv.start(None);
             mon.services.insert(0, srv.into());
         }
 

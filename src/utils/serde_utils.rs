@@ -90,6 +90,7 @@ where
     }
 }
 
+/// Load anything that can be [DeserializeOwned] from a file
 pub trait LoadFromFile: Sized {
     fn load_from_file(filename: &Path) -> Result<Self>;
 }
@@ -111,6 +112,7 @@ where
     }
 }
 
+/// Save any [Serialize] items to a file
 #[allow(dead_code)]
 pub trait SaveToFile: Sized {
     fn save_to_file(&self, filename: &Path) -> Result<()>;
