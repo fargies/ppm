@@ -21,10 +21,15 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{io::IsTerminal, sync::atomic::AtomicBool};
+use std::{
+    io::IsTerminal,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 mod serde_utils;
 pub use serde_utils::{InnerRef, LoadFromFile, wrap_map_iterator};
+
+pub mod poller;
 
 pub mod signal;
 
@@ -39,6 +44,9 @@ mod globset;
 pub use globset::GlobSet;
 
 pub mod debug;
+
+mod buffer;
+pub use buffer::Buffer;
 
 #[cfg(test)]
 mod mktemp;
@@ -72,5 +80,28 @@ where
         if let Some(callback) = self.0.take() {
             callback()
         }
+    }
+}
+
+/// Convenience trait to pass `Arc<T>|T|&Arc<T>` as an argument
+pub trait IntoArc<T> {
+    fn into_arc(self) -> Arc<T>;
+}
+
+impl<T> IntoArc<T> for Arc<T> {
+    fn into_arc(self) -> Arc<T> {
+        self
+    }
+}
+
+impl<T> IntoArc<T> for &Arc<T> {
+    fn into_arc(self) -> Arc<T> {
+        Arc::clone(self)
+    }
+}
+
+impl<T> IntoArc<T> for T {
+    fn into_arc(self) -> Arc<T> {
+        Arc::new(self)
     }
 }

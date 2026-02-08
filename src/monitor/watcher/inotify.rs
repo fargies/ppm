@@ -87,12 +87,7 @@ impl WatcherTrait for InotifyWatcher {
             };
 
             let join_handle = {
-                let mut ctx = WatcherThreadContext {
-                    watchs: Arc::clone(&ret.watchs),
-                    rx,
-                    monitor,
-                    buffer: vec![0; 4096],
-                };
+                let mut ctx = WatcherThreadContext::new(&ret, rx, monitor);
                 std::thread::spawn(move || {
                     ctx.run()
                         .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
@@ -128,24 +123,34 @@ struct WatcherThreadContext {
     rx: PipeReader,
     monitor: Weak<Monitor>,
     buffer: Vec<u8>,
+    pfds: Vec<pollfd>,
 }
 
 impl WatcherThreadContext {
-    fn make_pfds(&self) -> Vec<pollfd> {
-        let mut pfds = Vec::with_capacity(self.watchs.len() + 1);
+    pub fn new(watcher: &Watcher, rx: PipeReader, monitor: Weak<Monitor>) -> Self {
+        Self {
+            watchs: Arc::clone(&watcher.watchs),
+            rx,
+            monitor,
+            buffer: vec![0; 4096],
+            pfds: Vec::with_capacity(watcher.watchs.len() + 1),
+        }
+    }
+
+    fn prepare(&mut self) {
+        self.pfds.clear();
         for pfd in self.watchs.iter().map(|x| pollfd {
             fd: *x.key(),
             events: POLLIN | POLLERR,
             revents: 0,
         }) {
-            pfds.push(pfd);
+            self.pfds.push(pfd);
         }
-        pfds.push(pollfd {
+        self.pfds.push(pollfd {
             fd: self.rx.as_raw_fd(),
             events: POLLIN | POLLERR,
             revents: 0,
         });
-        pfds
     }
 
     fn monitor(&self) -> Result<Arc<Monitor>> {
@@ -159,23 +164,23 @@ impl WatcherThreadContext {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let mut pfds = self.make_pfds();
+        self.prepare();
         let mut update_pfds = false;
 
         loop {
             let _span = tracing::info_span!(parent: None, "watcher").entered();
 
             if update_pfds {
-                pfds = self.make_pfds();
+                self.prepare();
                 update_pfds = false;
             }
 
-            let mut ret = unsafe { poll(pfds.as_mut_ptr(), pfds.len() as nfds_t, -1) };
+            let mut ret = unsafe { poll(self.pfds.as_mut_ptr(), self.pfds.len() as nfds_t, -1) };
             if ret < 0 {
                 check(ret).context("failed to poll")?;
             }
 
-            for pfd in pfds.iter().take(pfds.len() - 1) {
+            for pfd in self.pfds.iter().take(self.pfds.len() - 1) {
                 if pfd.revents == 0 {
                     continue;
                 }
@@ -191,7 +196,7 @@ impl WatcherThreadContext {
                 }
             }
 
-            if pfds.last().unwrap().revents != 0 {
+            if self.pfds.last().unwrap().revents != 0 {
                 let mut wake_word = [0u8; 1];
                 if self.rx.read(&mut wake_word)? == 1 {
                     match wake_word[0] {

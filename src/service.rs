@@ -32,6 +32,7 @@ use std::sync::{
 };
 use std::{os::unix::process::CommandExt, time::Duration};
 
+use crate::monitor::logger::Logger;
 use crate::utils::libc::waitpid;
 use crate::utils::signal::{self, SIGTERM, Signal, SignalSet};
 
@@ -133,13 +134,19 @@ impl Service {
         Ok(self)
     }
 
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
-    pub fn start(&self) {
-        self.restart()
+    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self, logger))]
+    pub fn start<'a, L>(&self, logger: L)
+    where
+        L: Into<Option<&'a Logger>>,
+    {
+        self.restart(logger)
     }
 
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
-    pub fn restart(&self) {
+    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self, logger))]
+    pub fn restart<'a, L>(&self, logger: L)
+    where
+        L: Into<Option<&'a Logger>>,
+    {
         if self.info().pid.is_some() {
             self.stop();
         }
@@ -147,6 +154,10 @@ impl Service {
         // restarted but will prevent monitor from running waitpid
         // before we've set pid on this service
         let mut guard = self._info.lock().unwrap();
+        let (out, err) = logger
+            .into()
+            .and_then(|l| l.make_pipe(self).ok())
+            .unwrap_or_else(|| (process::Stdio::inherit(), process::Stdio::inherit()));
 
         match unsafe { libc::fork() } {
             x if x < 0 => {
@@ -164,8 +175,8 @@ impl Service {
                 let mut cmd = process::Command::new(self.command.path.as_str());
                 cmd.args(&self.command.args)
                     .stdin(process::Stdio::null())
-                    .stdout(process::Stdio::inherit())
-                    .stderr(process::Stdio::inherit());
+                    .stdout(out)
+                    .stderr(err);
                 if let Some(workdir) = self.workdir.as_ref() {
                     cmd.current_dir(workdir);
                 }
@@ -377,7 +388,7 @@ mod tests {
     fn spawn() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("ls", ["-la"]));
-        service.start();
+        service.start(None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
@@ -402,7 +413,7 @@ mod tests {
     fn stop() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
-        service.start();
+        service.start(None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
@@ -444,7 +455,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let mut srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
         srv.workdir = temp_dir.to_str().map(str::to_owned);
-        srv.start();
+        srv.start(None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(srv);
 
@@ -486,7 +497,7 @@ mod tests {
                     Command::new("sh", ["-c", "trap 'child died' EXIT; sleep 300"]),
                 );
                 /* fork/exec */
-                service.restart();
+                service.restart(None);
                 write!(fd, "{}", service.info().pid.expect("should have spawned"))
                     .expect("failed to write");
                 drop(fd);

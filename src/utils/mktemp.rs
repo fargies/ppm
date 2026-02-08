@@ -84,30 +84,40 @@ impl DerefMut for TempFile {
 impl Drop for TempFile {
     fn drop(&mut self) {
         self.file = None;
+        tracing::debug!(path = ?self.path, "removing temporary file");
         std::fs::remove_file(&self.path).expect("failed to remove temporary file: {self.path}");
     }
 }
 
 /// A temporary directory
 pub struct TempDir {
-    path: PathBuf,
+    _path: PathBuf,
+}
+
+impl Deref for TempDir {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
+        &self._path
+    }
 }
 
 impl AsRef<PathBuf> for TempDir {
     fn as_ref(&self) -> &PathBuf {
-        &self.path
+        &self._path
     }
 }
 
 impl Display for TempDir {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self.path.display()))
+        f.write_fmt(format_args!("{}", self._path.display()))
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.path).expect("failed to remove temporary dir: {self.path}");
+        tracing::debug!(path = ?self._path, "removing temporary dir");
+        std::fs::remove_dir_all(&self._path).expect("failed to remove temporary dir: {self.path}");
     }
 }
 
@@ -142,7 +152,7 @@ impl MkTemp {
         loop {
             let path = temp_dir.join(format!("{prefix}-{suffix}"));
             match create_dir(&path) {
-                Ok(_) => return Ok(TempDir { path }),
+                Ok(_) => return Ok(TempDir { _path: path }),
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => suffix += 1,
                 Err(err) => panic!("failed to create temporary dir: {err}"),
             }
