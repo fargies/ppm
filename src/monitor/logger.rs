@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize, ser::SerializeMap};
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Debug,
+    fs::create_dir_all,
     os::fd::{AsRawFd, RawFd},
     path::PathBuf,
     process::Stdio,
@@ -154,6 +155,9 @@ impl Logger {
             max_file_size: options.max_file_size,
             join_handle: None,
         };
+        if let Err(err) = create_dir_all(ret.path.as_ref()) {
+            tracing::error!(?err, "failed to create log directory");
+        }
 
         let join_handle = {
             let mut ctx = LoggerThreadContext::new(poller, Arc::clone(&ret.logs));
@@ -186,7 +190,8 @@ impl Logger {
                 self.max_files,
             )),
         };
-        pump.input.clear();
+        // ensure log file can be created, don't create the pump otherwise
+        pump.output.rotate()?;
         pump.make_input().inspect(|_| {
             self.logs.insert(service.id, pump);
             self.wake();
@@ -276,7 +281,9 @@ impl LoggerThreadContext {
 
                 if let Some(buffer) = if flags.contains(PollerFlags::IN) {
                     pump.on_input_ready(fd, self.take_buffer())
-                } else if !(flags & (PollerFlags::HUP | PollerFlags::ERR)).is_empty() {
+                } else if flags.contains(PollerFlags::HUP) {
+                    pump.on_hup(fd)
+                } else if flags.contains(PollerFlags::ERR) {
                     pump.on_error(fd)
                 } else if flags.contains(PollerFlags::OUT) {
                     pump.on_output_ready(fd)

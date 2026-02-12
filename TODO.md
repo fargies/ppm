@@ -8,3 +8,4 @@
 - [] fix watchs to filter filenames on MacOS, add a test to ensure this
 - [x] add schedule and workdir options on cli
 - [x] allow to monitor single files
+- [] documentation and schema for logger

@@ -22,7 +22,7 @@
 
 use anyhow::{Context, Result};
 use std::{
-    io::{ErrorKind, PipeReader, Read, pipe},
+    io::{ErrorKind, PipeReader, Read, Write, pipe, stdout},
     os::fd::{AsRawFd, RawFd},
     process::Stdio,
 };
@@ -103,6 +103,16 @@ impl LogPump {
         }
     }
 
+    pub fn on_hup(&mut self, fd: RawFd) -> Option<Buffer> {
+        if let Some(index) = self.input.iter().position(|file| file.as_raw_fd() == fd) {
+            /* hup is silent on inputs */
+            self.input.remove(index);
+            None
+        } else {
+            self.on_error(fd)
+        }
+    }
+
     ///send given buffer to logger
     ///
     ///Returns written bytes
@@ -111,6 +121,10 @@ impl LogPump {
             Ok(sz) => sz,
             Err(err) => {
                 tracing::error!(?err, "failed to write log");
+                // forwarding messages to stdout
+                if let Err(err) = stdout().write_all(buffer) {
+                    tracing::error!(?err, "failed to forward message");
+                }
                 buffer.len()
             }
         }
