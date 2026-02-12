@@ -32,6 +32,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.100"
 bitflags = "2.10.0"
+bytesize = { version = "2.3.1", features = ["serde"] }
 chrono = { version = "0.4.42", features = ["serde"] }
 clap = { version = "4.5.54", features = ["derive"] }
 colored = "3.0.0"
