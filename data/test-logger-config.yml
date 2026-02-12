@@ -1,0 +1,10 @@
+services:
+  - id: 1
+    name: test
+    command:
+      path: echo
+      args: [basic, log, entry]
+    schedule: "*/1 * * * * *"
+logger:
+  path: /tmp/ppm
+  max_file_size: 200B

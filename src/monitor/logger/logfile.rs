@@ -137,11 +137,11 @@ impl LogFile {
 
         let files = self.list_files();
         let file = match files
-            .first()
+            .last()
             .filter(|p| p.metadata().is_ok_and(|m| m.len() < self.max_size))
         {
             Some(file) => {
-                tracing::debug!(?file, "existing log file found");
+                tracing::info!(name = self.log_name, ?file, "existing log file found");
                 File::options()
                     .append(true)
                     .open(file)
@@ -154,15 +154,22 @@ impl LogFile {
                     })
             }
             None => {
-                if files.len() >= self.max_files {
-                    let file = files.last().unwrap();
-                    tracing::debug!(?file, "removing old file");
+                for file in files
+                    .iter()
+                    .take(files.len().saturating_sub(self.max_files))
+                {
+                    tracing::debug!(name = self.log_name, ?file, "removing old log file");
                     if let Err(err) = remove_file(file) {
                         tracing::error!(?err, ?file, "failed to remove file");
                     }
                 }
+
                 let file = self.log_dir.join(self.make_filename());
-                tracing::debug!(?file, "creating new log file");
+                if files.is_empty() {
+                    tracing::info!(name = self.log_name, ?file, "creating new log file");
+                } else {
+                    tracing::info!(name = self.log_name, ?file, "rotating log file");
+                }
                 File::options()
                     .create(true)
                     .write(true)
@@ -170,6 +177,7 @@ impl LogFile {
                     .open(&file)
                     .inspect_err(|err| tracing::error!(?err, ?file, "failed to open log-file"))
                     .inspect(|f| {
+                        self.written = 0;
                         f.set_nonblocking().unwrap_or_else(|err| {
                             tracing::error!(?err, "failed to set non-blocking")
                         })
