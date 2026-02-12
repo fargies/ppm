@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::serializers::tabled::TDisplay;
+use crate::utils::serializers::{human, tabled::TDisplay};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tabled::Tabled;
@@ -64,7 +64,7 @@ pub struct Stats {
 
     /// Uptime
     #[serde(
-        with = "humantime_serde",
+        with = "human::duration",
         default,
         skip_serializing_if = "Option::is_none"
     )]

@@ -21,7 +21,7 @@
 */
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeMap};
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -41,6 +41,7 @@ use crate::{
         Buffer,
         debug::DebugIter,
         poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter},
+        serializers::human,
     },
 };
 
@@ -48,60 +49,109 @@ mod logpump;
 use logpump::LogPump;
 
 mod logfile;
-use logfile::LogFile;
+use logfile::{LOGFILE_MAX_FILES_DEFAULT, LOGFILE_MAX_SIZE_DEFAULT, LogFile};
 
 const LOGGER_DEFAULT_PATH: &str = "/var/log/";
 
 type LogMap = Arc<DashMap<ServiceId, LogPump>>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(from = "LoggerOptions")]
 pub struct Logger {
-    path: Arc<PathBuf>,
-    #[serde(skip)]
+    pub path: Arc<PathBuf>,
+    pub max_files: usize,
+    pub max_file_size: u64,
     logs: LogMap,
-    #[serde(skip)]
     poller: Mutex<PollerWriter>,
-    #[serde(skip)]
     join_handle: Option<JoinHandle<()>>,
 }
 
-#[derive(Deserialize)]
+impl Serialize for Logger {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(3))?;
+
+        if self
+            .path
+            .as_os_str()
+            .to_str()
+            .is_some_and(|v| v != LOGGER_DEFAULT_PATH)
+        {
+            map.serialize_entry("path", &self.path)?;
+        }
+        if self.max_files != LOGFILE_MAX_FILES_DEFAULT {
+            map.serialize_entry("max_files", &LOGFILE_MAX_FILES_DEFAULT)?;
+        }
+        if self.max_file_size != LOGFILE_MAX_SIZE_DEFAULT {
+            map.serialize_entry("max_file_size", &LOGFILE_MAX_SIZE_DEFAULT)?;
+        }
+        map.end()
+    }
+}
+
+#[derive(Deserialize, PartialEq, Eq, Clone)]
 #[serde(default)]
 pub struct LoggerOptions {
     path: PathBuf,
+    max_files: usize,
+    #[serde(with = "human::size")]
+    max_file_size: u64,
+}
+
+impl<T> From<T> for LoggerOptions
+where
+    T: Into<PathBuf>,
+{
+    fn from(value: T) -> Self {
+        Self {
+            path: value.into(),
+            max_files: LOGFILE_MAX_FILES_DEFAULT,
+            max_file_size: LOGFILE_MAX_SIZE_DEFAULT,
+        }
+    }
 }
 
 impl Default for LoggerOptions {
     fn default() -> Self {
         Self {
             path: LOGGER_DEFAULT_PATH.into(),
+            max_files: LOGFILE_MAX_FILES_DEFAULT,
+            max_file_size: LOGFILE_MAX_SIZE_DEFAULT,
         }
     }
 }
 
 impl From<LoggerOptions> for Logger {
     fn from(value: LoggerOptions) -> Self {
-        Logger::new(value.path)
+        Self::new(value)
     }
 }
 
 impl Debug for Logger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Logger").field("path", &self.path).finish()
+        f.debug_struct("Logger")
+            .field("path", &self.path)
+            .field("max_files", &self.max_files)
+            .field("max_file_size", &self.max_file_size)
+            .finish()
     }
 }
 
 impl Logger {
-    pub fn new<T>(log_dir: T) -> Self
+    pub fn new<T>(options: T) -> Self
     where
-        T: Into<PathBuf>,
+        T: Into<LoggerOptions>,
     {
+        let options = options.into();
         let (poller, tx) = Poller::new();
         let mut ret = Self {
-            path: Arc::new(log_dir.into()),
+            path: Arc::new(options.path),
             logs: Default::default(),
             poller: Mutex::new(tx),
+            max_files: options.max_files,
+            max_file_size: options.max_file_size,
             join_handle: None,
         };
 
@@ -129,7 +179,12 @@ impl Logger {
     pub fn make_pipe(&self, service: &Service) -> Result<(Stdio, Stdio)> {
         let mut pump = match self.logs.remove(&service.id) {
             Some((_, pump)) => pump,
-            None => LogPump::from(LogFile::new(&self.path, &service.name)),
+            None => LogPump::from(LogFile::new_with_limits(
+                &self.path,
+                &service.name,
+                self.max_file_size,
+                self.max_files,
+            )),
         };
         pump.input.clear();
         pump.make_input().inspect(|_| {
@@ -259,6 +314,7 @@ mod tests {
         utils::{MkTemp, libc::waitpid},
     };
     use anyhow::Result;
+    use serde_yaml_ng as yaml;
     use serial_test::serial;
 
     #[test]
@@ -283,6 +339,20 @@ mod tests {
         assert_eq!(1, files.len());
         assert_eq!(12, files.first().unwrap().metadata()?.len());
 
+        Ok(())
+    }
+
+    #[test]
+    fn serde() -> Result<()> {
+        let logger: Logger = yaml::from_str("{}")?;
+        assert_eq!(&PathBuf::from(LOGGER_DEFAULT_PATH), logger.path.as_path());
+        let logger: Logger = yaml::from_str("path: /tmp")?;
+        assert_eq!(&PathBuf::from("/tmp"), logger.path.as_path());
+        let logger: Logger = yaml::from_str("path: /tmp\nmax_files: 30")?;
+        assert_eq!(30, logger.max_files);
+
+        let logger: Logger = yaml::from_str("path: /tmp\nmax_file_size: 1MiB")?;
+        assert_eq!(1024 * 1024, logger.max_file_size);
         Ok(())
     }
 }

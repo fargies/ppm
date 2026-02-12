@@ -32,8 +32,8 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-const LOGFILE_MAX_SIZE_DEFAULT: usize = 1024 * 1024 * 20;
-const LOGFILE_MAX_FILES_DEFAULT: usize = 3;
+pub const LOGFILE_MAX_SIZE_DEFAULT: u64 = 1024 * 1024 * 20;
+pub const LOGFILE_MAX_FILES_DEFAULT: usize = 3;
 /* RFC3339 length + 1 : `-2345-78-01T34:67:90+23:56.log` */
 const LOGFILE_SUFFIX_LEN: usize = 30;
 
@@ -43,7 +43,7 @@ static LOGFILE_SUFFIX_RE: LazyLock<Regex> =
 pub struct LogFile {
     file: Option<File>,
     written: usize,
-    pub max_size: usize,
+    pub max_size: u64,
     pub max_files: usize,
     log_dir: Arc<PathBuf>,
     log_name: String,
@@ -56,7 +56,21 @@ impl PartialEq<RawFd> for LogFile {
 }
 
 impl LogFile {
+    #[allow(dead_code)] // used in tests
     pub fn new<T, S>(log_dir: T, log_name: S) -> Self
+    where
+        T: IntoArc<PathBuf>,
+        S: Into<String>,
+    {
+        Self::new_with_limits(
+            log_dir,
+            log_name,
+            LOGFILE_MAX_SIZE_DEFAULT,
+            LOGFILE_MAX_FILES_DEFAULT,
+        )
+    }
+
+    pub fn new_with_limits<T, S>(log_dir: T, log_name: S, max_size: u64, max_files: usize) -> Self
     where
         T: IntoArc<PathBuf>,
         S: Into<String>,
@@ -64,8 +78,8 @@ impl LogFile {
         Self {
             file: None,
             written: 0,
-            max_size: LOGFILE_MAX_SIZE_DEFAULT,
-            max_files: LOGFILE_MAX_FILES_DEFAULT,
+            max_size,
+            max_files,
             log_dir: log_dir.into_arc(),
             log_name: log_name.into(),
         }
@@ -117,15 +131,15 @@ impl LogFile {
     }
 
     pub fn rotate(&mut self) -> Result<()> {
-        if self.file.is_some() && self.written < self.max_size {
+        if self.file.is_some() && self.written < self.max_size as usize {
             return Ok(());
         }
 
         let files = self.list_files();
-        let file = match files.first().filter(|p| {
-            p.metadata()
-                .is_ok_and(|m| (m.len() as usize) < self.max_size)
-        }) {
+        let file = match files
+            .first()
+            .filter(|p| p.metadata().is_ok_and(|m| m.len() < self.max_size))
+        {
             Some(file) => {
                 tracing::debug!(?file, "existing log file found");
                 File::options()

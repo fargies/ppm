@@ -35,6 +35,7 @@ use crate::{
     utils::{
         self,
         libc::{getpid, gettid, setsid, waitpid},
+        serializers::human,
         serializers::instant::check_ref_time,
         signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
     },
@@ -57,13 +58,13 @@ pub mod logger;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Monitor {
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "human::duration")]
     pub stats_interval: std::time::Duration,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "human::duration")]
     pub restart_interval: std::time::Duration,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "human::duration")]
     pub watch_restart_interval: std::time::Duration,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "human::duration")]
     pub clock_check_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
