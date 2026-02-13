@@ -7,4 +7,4 @@ services:
     schedule: "*/1 * * * * *"
 logger:
   path: /tmp/ppm
-  max_file_size: 200B
+  max_file_size: 20MiB

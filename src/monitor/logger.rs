@@ -83,10 +83,10 @@ impl Serialize for Logger {
             map.serialize_entry("path", &self.path)?;
         }
         if self.max_files != LOGFILE_MAX_FILES_DEFAULT {
-            map.serialize_entry("max_files", &LOGFILE_MAX_FILES_DEFAULT)?;
+            map.serialize_entry("max_files", &self.max_files)?;
         }
         if self.max_file_size != LOGFILE_MAX_SIZE_DEFAULT {
-            map.serialize_entry("max_file_size", &LOGFILE_MAX_SIZE_DEFAULT)?;
+            map.serialize_entry("max_file_size", &human::size::Wrapper(&self.max_file_size))?;
         }
         map.end()
     }
@@ -180,6 +180,7 @@ impl Logger {
         }
     }
 
+    #[tracing::instrument(skip(self, service))]
     pub fn make_pipe(&self, service: &Service) -> Result<(Stdio, Stdio)> {
         let mut pump = match self.logs.remove(&service.id) {
             Some((_, pump)) => pump,

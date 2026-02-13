@@ -60,7 +60,7 @@ tracing-subscriber = { version = "0.3.22", features = [
 
 [dev-dependencies]
 ctor = "0.6.3"
-serial_test = "3.3.1"
+serial_test = { version = "3.3.1", features = ["file_locks"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = "0.3.0"

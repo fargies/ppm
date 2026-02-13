@@ -156,7 +156,7 @@ impl LogFile {
             None => {
                 for file in files
                     .iter()
-                    .take(files.len().saturating_sub(self.max_files))
+                    .take(files.len().saturating_sub(self.max_files - 1))
                 {
                     tracing::debug!(name = self.log_name, ?file, "removing old log file");
                     if let Err(err) = remove_file(file) {
