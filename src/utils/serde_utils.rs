@@ -28,7 +28,8 @@ use serde::{Serialize, Serializer, de::DeserializeOwned};
 use std::{
     cell::Cell,
     fs::File,
-    io::{Error, ErrorKind, Read, Write},
+    io::{Read, Write},
+    os::unix::fs::MetadataExt,
     path::Path,
 };
 
@@ -102,13 +103,10 @@ where
     #[tracing::instrument(err)]
     fn load_from_file(filename: &Path) -> Result<Self> {
         let mut f = File::open(filename).with_context(|| format!("failed to load {filename:?}"))?;
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(f.metadata().map(|m| m.size() as usize).unwrap_or(2048));
 
         f.read_to_end(&mut buf)?;
-        match serde_yaml_ng::from_slice(&buf) {
-            Ok(c) => Ok(c),
-            Err(e) => Err(Error::new(ErrorKind::InvalidInput, e.to_string()).into()),
-        }
+        serde_yaml_ng::from_slice(&buf).with_context(|| format!("failed to load {filename:?}"))
     }
 }
 

@@ -13,8 +13,10 @@
       "description": "Services to spawn and monitor",
       "type": "array",
       "items": { "$ref": "#/$defs/service" }
-    }
+    },
+    "logger": { "$ref": "#/$defs/logger" }
   },
+  "additionalProperties": false,
   "required": ["services"],
   "$defs": {
     "service": {
@@ -26,7 +28,7 @@
         "schedule": {
           "type": "string",
           "examples": ["*/15 * * * * *", "59 23 * APR,MAY SAT,SUN"],
-          "pattern": "(?i)([0-9*/,?-]+)? [0-9*/,?-]+ [0-9*/,?-]+ [0-9*/,?-]+ ([0-9*/,?-]+|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) ([0-9*/,?-]+|-SUN|SUN|MON|TUE|WED|THU|FRI|SAT)"
+          "pattern": "^([0-9*/,?-]+)? [0-9*/,?-]+ [0-9*/,?-]+ [0-9*/,?-]+ ([0-9*/,?-]+|[Jj][Aa][Nn]|[Ff][Ee][Bb]|[Mm][Aa][RrYy]|[Aa][Pp][Rr]|[Jj][Uu][NnLl]|[Aa][Uu][Gg]|[Ss][Ee][Pp[|[Oo][Cc][Tt]|[Nn][Oo][Vv]|[Dd][Ee][Cc]) ([0-9*/,?-]+|-?[Ss][Uu][Nn]|[Mm][Oo][Nn]|[Tt][Uu][Ee]|[Ww][Ee][Dd]|[Tt][Hh][Uu]|[Ff][Rr][Ii]|[Ss][Aa][Tt])$"
         },
         "watch": { "$ref": "#/$defs/watch" },
         "workdir": { "type": "string" }
@@ -38,7 +40,7 @@
       "properties": {
         "path": { "type": "string" },
         "args": { "type": "array", "items": { "type": "string" } },
-        "env": { "type": "object" }
+        "env": { "type": "object", "items": { "type": "string" } }
       },
       "required": ["path"]
     },
@@ -80,7 +82,26 @@
     },
     "duration": {
       "type": "string",
-      "pattern": "([0-9]+year(s)?)? ([0-9]+month(s)?)? ([0-9]+day(s)?)? ([0-9]+h)? ([0-9]+m)? ([0-9]+s)? ([0-9]+ms)?"
+      "examples": ["2h", "1h30m"],
+      "pattern": "^([0-9]+year(s)?)?\\s*([0-9]+month(s)?)?\\s*([0-9]+day(s)?)?\\s*([0-9]+h)?\\s*([0-9]+m)?\\s*([0-9]+s)?\\s*([0-9]+ms)?$"
+    },
+    "logger": {
+      "type": "object",
+      "description": "Logger configuration",
+      "properties": {
+        "path": { "type": "string" },
+        "max_files": { "type": "integer" },
+        "max_file_size": {
+          "anyOf": [
+            {
+              "type": "string",
+              "examples": ["20MiB", "1.5 GB"],
+              "pattern": "^[0-9]+([.][0-9]+)?\\s*[KkMmGg][iI]?[Bb]?$"
+            },
+            { "type": "integer" }
+          ]
+        }
+      }
     }
   }
 }

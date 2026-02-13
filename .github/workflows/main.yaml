@@ -25,7 +25,7 @@ jobs:
       - name: Prepare container
         uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
         with:
-          dependencies: base-devel git jq
+          dependencies: base-devel git jq python
       - name: Build project
         run: cargo build
       - name: Run tests
@@ -58,7 +58,7 @@ jobs:
         uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
         with:
           toolchain: "stable-x86_64-unknown-linux-gnu"
-          dependencies: build-essential git libssl-dev pkg-config clang jq
+          dependencies: build-essential git libssl-dev pkg-config clang jq python
       - name: Build project
         run: cargo build --release
       - name: Run tests
@@ -107,16 +107,3 @@ jobs:
       - name: Build website
         working-directory: website
         run: npm install && npm run build
-
-  schema:
-    runs-on: ubuntu-latest
-    container: alpine:latest
-    steps:
-      - name: Prepare container
-        uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare@master
-        with:
-          dependencies: yq check-jsonschema
-      - name: Validate configuration schema
-        run: |
-          cat data/test-config.yml  | yq -o=json | check-jsonschema --schemafile ./data/config.schema.json -
-          cat data/test-watcher-config.yml  | yq -o=json | check-jsonschema --schemafile ./data/config.schema.json -

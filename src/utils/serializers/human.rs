@@ -31,8 +31,21 @@ pub mod size {
     where
         S: Serializer,
     {
-        ByteSize::b(*value).serialize(serializer)
-        // Size::from_bytes(*value).serialize(serializer)
+        if value == &0 {
+            "0".serialize(serializer)
+        } else if value & ((1 << 10) - 1) != 0 {
+            format!("{value}B").serialize(serializer)
+        } else if value & ((1 << 20) - 1) != 0 {
+            format!("{}KiB", value >> 10).serialize(serializer)
+        } else if value & ((1 << 30) - 1) != 0 {
+            format!("{}MiB", value >> 20).serialize(serializer)
+        } else if value & ((1 << 40) - 1) != 0 {
+            format!("{}GiB", value >> 30).serialize(serializer)
+        } else if value & ((1 << 50) - 1) != 0 {
+            format!("{}TiB", value >> 40).serialize(serializer)
+        } else {
+            format!("{}PiB", value >> 50).serialize(serializer)
+        }
     }
 
     /// Deserializer for byte-size values
@@ -41,7 +54,17 @@ pub mod size {
         D: Deserializer<'de>,
     {
         ByteSize::deserialize(deserializer).map(|v| v.as_u64())
-        // Size::deserialize(deserializer).map(|v| v.bytes() as usize)
+    }
+
+    pub struct Wrapper<'a>(pub &'a u64);
+
+    impl Serialize for Wrapper<'_> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serialize(self.0, serializer)
+        }
     }
 }
 
@@ -72,10 +95,14 @@ mod tests {
             ("12GiB", 12 * 1024 * 1024 * 1024),
             ("12G", 12_000_000_000),
             ("12.5 K", 12_500),
+            ("123", 123),
         ] {
             let value: Test = yaml::from_str(format!("size: \"{}\"", test).as_str())?;
             tracing::debug!(test, serialized = yaml::to_string(&value)?);
             assert_eq!(value.size, result, "{} != {}", test, result);
+
+            let reparsed: Test = yaml::from_str(yaml::to_string(&value)?.as_str())?;
+            assert_eq!(reparsed.size, value.size);
         }
         Ok(())
     }
