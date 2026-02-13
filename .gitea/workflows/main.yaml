@@ -58,7 +58,7 @@ jobs:
         uses: ${{ github.server_url }}/fargie_s/gitea-actions/prepare/rust@master
         with:
           toolchain: "stable-x86_64-unknown-linux-gnu"
-          dependencies: build-essential git libssl-dev pkg-config clang jq python
+          dependencies: build-essential git libssl-dev pkg-config clang jq python3
       - name: Build project
         run: cargo build --release
       - name: Run tests
