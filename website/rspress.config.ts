@@ -5,6 +5,7 @@ export default defineConfig({
   root: path.join(__dirname, "docs"),
   title: "PPM",
   icon: "/logo.svg",
+  base: "/ppm/",
   logo: {
     light: "/logo.svg",
     dark: "/logo.svg",
