@@ -20,10 +20,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{
-    fs,
-    process::{Command, Stdio},
-};
+use std::{fs, process::Command};
 
 use anyhow::{Context, Result, ensure};
 use serial_test::file_serial;
@@ -67,16 +64,10 @@ fn validate_schema() -> Result<()> {
         .map(|e| e.path())
     {
         println!("validating schema on {:?}", file);
-        let yq = Command::new("yq")
-            .arg("-o=json")
-            .arg(file)
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("yq failed")?;
 
         let mut validate = Command::new(&json_schema_exe)
-            .args(["--schemafile", "./data/config.schema.json", "-"])
-            .stdin(yq.stdout.unwrap())
+            .args(["--schemafile", "./data/config.schema.json"])
+            .arg(file)
             .spawn()
             .context("check-jsonschema failed")?;
 
