@@ -93,6 +93,24 @@ pub enum Action {
     /// Used by `statistics` command from cli
     #[command(skip)]
     DaemonStats,
+
+    #[command(skip)]
+    ListLogFiles { service: String },
+
+    /// Show service logs
+    Log {
+        /// Service to show logs from
+        service: String,
+
+        /// Number of lines to show
+        #[clap(long, short = 'n')]
+        lines: Option<usize>,
+
+        /// Wait for new log-lines
+        #[clap(long, short)]
+        follow: Option<bool>,
+    },
+
     /// Get scheduler info
     ShowScheduler,
 }

@@ -9,3 +9,4 @@
 - [x] add schedule and workdir options on cli
 - [x] allow to monitor single files
 - [] documentation and schema for logger
+- [] when rotating files do look for `\n` boundaries
