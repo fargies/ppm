@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde_yaml_ng as yaml;
 use std::{
     io::BufReader,
@@ -231,6 +231,17 @@ impl Server {
                 monitor.remove(&service.id);
                 serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }
+            Action::ListLogFiles { service } => {
+                let logger = monitor
+                    .logger
+                    .as_ref()
+                    .ok_or(anyhow!("logger not enabled"))?;
+                let service = Server::find_service(monitor, &service)
+                    .with_context(|| format!("no such service \"{service}\""))?;
+
+                serde_json::to_writer(stream, &ActionResult::Ok(logger.list_files(service.id)))?;
+            }
+            Action::Log { .. } => unimplemented!("log command must be handled from client side"),
         }
         Ok(())
     }

@@ -26,8 +26,10 @@ use colored::Colorize;
 use serde::de::DeserializeOwned;
 use std::{
     collections::HashMap,
-    io::BufReader,
+    fs::File,
+    io::{BufRead, BufReader},
     net::{TcpStream, ToSocketAddrs},
+    ops::AddAssign,
     time::{Duration, Instant},
 };
 use tabled::{
@@ -86,7 +88,9 @@ impl Client {
     pub fn run(&self, action: &Action) -> Result<()> {
         match action {
             Action::Daemon { .. } => unimplemented!("must be handled before connecting"),
-            Action::List | Action::DaemonStats => unimplemented!("not available from cmdline"),
+            Action::List | Action::DaemonStats | Action::ListLogFiles { .. } => {
+                unimplemented!("not available from cmdline")
+            }
             Action::Info => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
                 let info: HashMap<ServiceId, service::Info> = self.invoke(&Action::Info)?;
@@ -115,6 +119,7 @@ impl Client {
                 let data = Some(StatsRecord {
                     id: 0,
                     name: Some(&daemon_name),
+                    /* provide stats only if there's an uptime */
                     stats: daemon_stats.uptime.map(|_| &daemon_stats),
                 })
                 .into_iter()
@@ -144,6 +149,30 @@ impl Client {
                     .into_iter()
                     .map(|event| SchedulerEventRecord::new(event, &services_list));
                 self.display(Table::new(data));
+                Ok(())
+            }
+            Action::Log {
+                service,
+                lines: max_lines,
+                follow,
+            } => {
+                let files: Vec<String> = self.invoke(&Action::ListLogFiles {
+                    service: service.clone(),
+                })?;
+
+                let mut count = 0;
+                for file in files.into_iter() {
+                    let fd = BufReader::new(File::open(file)?);
+                    for line in fd.lines() {
+                        let line = line?;
+                        println!("{line}");
+                        count += 1;
+                        /* fixme, this works the other way arround, record the start-point then go backward until n lines are read (or all files have been read) */
+                        if max_lines.is_some_and(|max_lines| count >= max_lines) {
+                            break;
+                        }
+                    }
+                }
                 Ok(())
             }
             action => self.invoke(action),
