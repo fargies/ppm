@@ -107,7 +107,7 @@ pub enum Action {
         lines: Option<usize>,
 
         /// Wait for new log-lines
-        #[clap(long, short)]
+        #[clap(long, short, action = clap::ArgAction::SetTrue)]
         follow: Option<bool>,
     },
 

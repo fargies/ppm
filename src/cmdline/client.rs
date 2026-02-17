@@ -26,10 +26,9 @@ use colored::Colorize;
 use serde::de::DeserializeOwned;
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader},
+    io::{BufReader, stdout},
     net::{TcpStream, ToSocketAddrs},
-    ops::AddAssign,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 use tabled::{
@@ -49,6 +48,15 @@ use crate::{
 };
 
 use super::{Action, ActionResult};
+
+mod fileset;
+use fileset::FileSet;
+
+mod tail_reader;
+use tail_reader::TailReader;
+
+mod client_log_tracker;
+use client_log_tracker::ClientLogTracker;
 
 const STATS_DAEMON_NAME: &str = "<PPM daemon>";
 
@@ -153,25 +161,23 @@ impl Client {
             }
             Action::Log {
                 service,
-                lines: max_lines,
+                lines,
                 follow,
             } => {
-                let files: Vec<String> = self.invoke(&Action::ListLogFiles {
+                let files: Vec<PathBuf> = self.invoke(&Action::ListLogFiles {
                     service: service.clone(),
                 })?;
 
-                let mut count = 0;
-                for file in files.into_iter() {
-                    let fd = BufReader::new(File::open(file)?);
-                    for line in fd.lines() {
-                        let line = line?;
-                        println!("{line}");
-                        count += 1;
-                        /* fixme, this works the other way arround, record the start-point then go backward until n lines are read (or all files have been read) */
-                        if max_lines.is_some_and(|max_lines| count >= max_lines) {
-                            break;
-                        }
-                    }
+                if files.is_empty() {
+                    return Ok(());
+                }
+                let filename = files.last().unwrap().clone();
+
+                let mut files = FileSet::new(files)?;
+                files.tail(&mut stdout(), *lines)?;
+
+                if follow.unwrap_or(false) {
+                    ClientLogTracker::new(service.clone(), self, files.into(), filename).log()?;
                 }
                 Ok(())
             }
