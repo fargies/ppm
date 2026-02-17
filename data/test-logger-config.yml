@@ -2,8 +2,7 @@ services:
   - id: 1
     name: test
     command:
-      path: echo
-      args: [basic, log, entry]
+      path: date
     schedule: "*/1 * * * * *"
 logger:
   path: /tmp/ppm

@@ -96,7 +96,7 @@
             {
               "type": "string",
               "examples": ["20MiB", "1.5 GB"],
-              "pattern": "^[0-9]+([.][0-9]+)?\\s*[KkMmGg][iI]?[Bb]?$"
+              "pattern": "^[0-9]+([.][0-9]+)?\\s*[KkMmGg]?[iI]?[Bb]?$"
             },
             { "type": "integer" }
           ]
