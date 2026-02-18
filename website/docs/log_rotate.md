@@ -17,7 +17,7 @@ logger:
 
 Once enabled, PPM will write logs to files instead of forwarding them to the console.
 
-## Configuration Options
+### Configuration Options
 
 You can fine-tune the logger behavior using the following options (shown here
 with their default values):
@@ -35,7 +35,7 @@ logger:
   max_file_size: 20MiB
 ```
 
-## Option Details
+### Option Details
 
 - path\
   Directory where log files will be written.\
@@ -58,3 +58,19 @@ buffered log line is fully written and not truncated.
 Log files are named using the following format: `<service_name>-<date>.log`
 
 Each service maintains its own set of rotated log files.
+
+## Viewing Logs
+
+The PPM client provides convenient commands for accessing service logs:
+
+```bash
+# Dump all logs for a service
+ppm log my_service
+
+# Dump the last 200 lines
+ppm log my_service -n 200
+
+# Dump last 200 lines and follow output
+# (properly handles log rotation)
+ppm log my_service -n 200 -f
+```
