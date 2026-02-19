@@ -133,10 +133,10 @@ impl WatchInfoData {
                 return;
             }
         };
-        if let Some(watch) = service.watch
+        if let Some(watch) = service.watch.as_ref()
             && Path::new(path)
                 .file_name()
-                .is_some_and(|name| !watch.is_excluded(name))
+                .is_some_and(|name| !watch.is_excluded(name.as_ref()))
         {
             tracing::info!(id=service.id, name=service.name, file=?path,
                 event=?flags,
