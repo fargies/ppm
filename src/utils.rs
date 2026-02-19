@@ -26,7 +26,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-mod serde_utils;
+pub mod serde_utils;
 pub use serde_utils::{InnerRef, LoadFromFile, wrap_map_iterator};
 
 pub mod poller;

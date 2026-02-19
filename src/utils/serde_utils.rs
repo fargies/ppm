@@ -33,6 +33,9 @@ use std::{
     path::Path,
 };
 
+pub mod one_or_many;
+pub use one_or_many::OneOrManyWrapper;
+
 /// Serialize a seq iterator
 pub struct SeqWrapper<T>(Cell<Option<T>>);
 

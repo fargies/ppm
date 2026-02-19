@@ -21,18 +21,17 @@
 */
 
 use serde::{
-    Deserialize, Serialize, Serializer,
+    Deserialize, Serialize,
     de::{Error, Visitor},
-    ser::{SerializeMap, SerializeSeq},
+    ser::SerializeMap,
 };
 use std::{
     fmt,
-    ops::Deref,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
 
-use crate::utils::GlobSet;
+use crate::utils::{GlobSet, serde_utils::OneOrManyWrapper};
 
 static DEFAULT_EXCLUDE: LazyLock<GlobSet> =
     LazyLock::new(|| GlobSet::try_from([".?*", "**/{build,target}*", "*.o"]).unwrap());
@@ -91,45 +90,6 @@ impl fmt::Debug for Watch {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(untagged)]
-enum OneOrMany<T> {
-    /// Single value
-    One(T),
-    /// Array of values
-    Vec(Vec<T>),
-}
-
-impl<T> From<OneOrMany<T>> for Vec<T> {
-    fn from(val: OneOrMany<T>) -> Self {
-        match val {
-            OneOrMany::One(e) => vec![e],
-            OneOrMany::Vec(items) => items,
-        }
-    }
-}
-
-impl<T> Serialize for OneOrMany<&T>
-where
-    T: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            OneOrMany::One(v) => v.serialize(serializer),
-            OneOrMany::Vec(items) => {
-                let mut seq = serializer.serialize_seq(Some(items.len()))?;
-                for i in items.iter() {
-                    seq.serialize_element(i)?;
-                }
-                seq.end()
-            }
-        }
-    }
-}
-
 struct WatchVisitor();
 
 impl<'de> Visitor<'de> for WatchVisitor {
@@ -171,7 +131,9 @@ impl<'de> Visitor<'de> for WatchVisitor {
             } else if k == "include" {
                 watch.include = Some(map.next_value()?);
             } else if k == "paths" {
-                watch.paths = map.next_value::<OneOrMany<PathBuf>>()?.into();
+                watch.paths = map
+                    .next_value::<OneOrManyWrapper<Vec<PathBuf>>>()?
+                    .into_inner();
             } else if k == "max_depth" {
                 watch.max_depth = map.next_value()?;
             }
@@ -196,28 +158,6 @@ trait OptionLen {
 impl<T> OptionLen for Option<T> {
     fn len(&self) -> usize {
         if self.is_some() { 1 } else { 0 }
-    }
-}
-
-struct OneOrManyWrapper<'a, V, T>(&'a V)
-where
-    V: Deref<Target = [T]>,
-    T: Serialize;
-
-impl<'a, V, T> Serialize for OneOrManyWrapper<'a, V, T>
-where
-    V: Deref<Target = [T]>,
-    T: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if self.0.len() == 1 {
-            self.0.first().unwrap().serialize(serializer)
-        } else {
-            self.0.serialize(serializer)
-        }
     }
 }
 

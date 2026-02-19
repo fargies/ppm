@@ -29,7 +29,7 @@ use std::{
 };
 
 use humantime_serde;
-use serde::{Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 static REF_INSTANT: RwLock<Option<(Instant, SystemTime)>> = RwLock::new(None);
 const MAX_DRIFT: Duration = Duration::from_millis(10);
@@ -100,39 +100,60 @@ pub fn to_systime(instant: &Instant) -> SystemTime {
 /// Serializer for [Instant]
 ///
 /// add `#[serde(with=utils::serializers::instant)]` to use this module
-pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S, V>(instant: &V, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
+    for<'a> Serde<&'a V>: Serialize,
 {
-    humantime_serde::serialize(&to_systime(instant), serializer)
+    Serde(instant).serialize(serializer)
 }
 
 /// Deserializer for [Instant]
-pub fn deserialize<'de, D>(deserializer: D) -> Result<Instant, D::Error>
+pub fn deserialize<'de, D, V>(deserializer: D) -> Result<V, D::Error>
 where
     D: Deserializer<'de>,
+    Serde<V>: Deserialize<'de>,
 {
-    humantime_serde::deserialize(deserializer).map(|timestamp: SystemTime| from_systime(&timestamp))
+    Serde::deserialize(deserializer).map(|v| v.0)
 }
 
-pub mod option {
-    use super::*;
+pub struct Serde<T>(T);
 
-    /// Option serializer for [Instant]
-    pub fn serialize<S>(instant: &Option<Instant>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        humantime_serde::serialize(&instant.as_ref().map(to_systime), serializer)
-    }
-
-    /// Option deserializer for [Instant]
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Instant>, D::Error>
+impl<'de> Deserialize<'de> for Serde<Instant> {
+    fn deserialize<D>(deserializer: D) -> Result<Serde<Instant>, D::Error>
     where
         D: Deserializer<'de>,
     {
         humantime_serde::deserialize(deserializer)
-            .map(|timestamp: SystemTime| Some(from_systime(&timestamp)))
+            .map(|timestamp: SystemTime| Serde(from_systime(&timestamp)))
+    }
+}
+
+impl<'de> Deserialize<'de> for Serde<Option<Instant>> {
+    fn deserialize<D>(deserializer: D) -> Result<Serde<Option<Instant>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        humantime_serde::deserialize(deserializer)
+            .map(|timestamp: Option<SystemTime>| Serde(timestamp.map(|v| from_systime(&v))))
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Instant> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        humantime_serde::serialize(&to_systime(self.0), serializer)
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Option<Instant>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        humantime_serde::serialize(&self.0.as_ref().map(|v| to_systime(v)), serializer)
     }
 }
 
@@ -140,9 +161,11 @@ pub mod option {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use serde::{Deserialize, Serialize};
+    use serde_yaml_ng as yaml;
 
     #[test]
-    fn serde() -> Result<()> {
+    fn convert() -> Result<()> {
         let now = Instant::now();
         let systime = to_systime(&now);
         std::thread::sleep(Duration::from_millis(10));
@@ -150,6 +173,26 @@ mod tests {
         assert_eq!(
             systime.elapsed()?.as_millis(),
             to_systime(&now).elapsed()?.as_millis()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serde_option() -> Result<()> {
+        #[derive(Serialize, Deserialize)]
+        struct Test {
+            #[serde(with = "super", default)]
+            value: Option<Instant>,
+        }
+
+        let value: Test = yaml::from_str("{}")?;
+        assert_eq!(None, value.value);
+
+        let now = Instant::now();
+        let value: Test = yaml::from_str(yaml::to_string(&Test { value: Some(now) })?.as_str())?;
+        assert_eq!(
+            value.value.unwrap().elapsed().as_millis(),
+            now.elapsed().as_millis()
         );
         Ok(())
     }

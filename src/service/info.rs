@@ -41,14 +41,14 @@ pub struct Info {
     #[tabled(display("info_status_str"))]
     pub status: Status,
     #[serde(
-        with = "serializers::instant::option",
+        with = "serializers::instant",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     #[tabled(display("TDisplay::to_string"), rename = "start time")]
     pub start_time: Option<Instant>,
     #[serde(
-        with = "serializers::instant::option",
+        with = "serializers::instant",
         default,
         skip_serializing_if = "Option::is_none"
     )]
