@@ -155,7 +155,7 @@ where
     D: Deserializer<'de>,
     OneOrManyWrapper<V>: Deserialize<'de>,
 {
-    OneOrManyWrapper::deserialize(deserializer).map(|m| m.0.into())
+    OneOrManyWrapper::deserialize(deserializer).map(|m| m.0)
 }
 
 #[cfg(test)]

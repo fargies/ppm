@@ -139,7 +139,7 @@ impl<'de> Deserialize<'de> for Serde<Option<Instant>> {
     }
 }
 
-impl<'a> Serialize for Serde<&'a Instant> {
+impl Serialize for Serde<&Instant> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -148,12 +148,12 @@ impl<'a> Serialize for Serde<&'a Instant> {
     }
 }
 
-impl<'a> Serialize for Serde<&'a Option<Instant>> {
+impl Serialize for Serde<&Option<Instant>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        humantime_serde::serialize(&self.0.as_ref().map(|v| to_systime(v)), serializer)
+        humantime_serde::serialize(&self.0.as_ref().map(to_systime), serializer)
     }
 }
 
