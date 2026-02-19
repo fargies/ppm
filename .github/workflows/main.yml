@@ -17,3 +17,18 @@ jobs:
         run: cargo test
       - name: Run clippy
         run: cargo clippy -- -D warnings
+
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v5
+      - name: Build project
+        run: cargo build
+      - name: Run tests
+        run: cargo test
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
