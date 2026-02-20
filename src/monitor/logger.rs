@@ -316,12 +316,10 @@ impl LoggerThreadContext {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
     use crate::{
         service::{Command, Service},
-        utils::{MkTemp, libc::waitpid},
+        utils::{MkTemp, libc::waitpid, wait_for},
     };
     use anyhow::Result;
     use serde_yaml_ng as yaml;
@@ -337,20 +335,30 @@ mod tests {
 
         srv.restart(&logger);
         waitpid(srv.info().pid.unwrap(), true).expect("failed to wait for srv");
-        /* process may die before its fds are fully-flushed and processed */
-        std::thread::sleep(Duration::from_millis(100));
-
-        let files = logger.list_files(srv.id);
-        assert_eq!(1, files.len());
-        assert_eq!(6, files.first().unwrap().metadata()?.len());
+        wait_for!(
+            logger.list_files(srv.id).len() == 1,
+            "files:{:?}",
+            logger.list_files(srv.id)
+        )
+        .expect("invalid log file count");
+        assert_eq!(
+            6,
+            logger.list_files(srv.id).first().unwrap().metadata()?.len()
+        );
 
         srv.restart(&logger);
         waitpid(srv.info().pid.unwrap(), true).expect("failed to wait for srv");
-        std::thread::sleep(Duration::from_millis(100));
 
-        let files = logger.list_files(srv.id);
-        assert_eq!(1, files.len());
-        assert_eq!(12, files.first().unwrap().metadata()?.len());
+        wait_for!(
+            logger.list_files(srv.id).len() == 1,
+            "files:{:?}",
+            logger.list_files(srv.id)
+        )
+        .expect("invalid log file count");
+        assert_eq!(
+            12,
+            logger.list_files(srv.id).first().unwrap().metadata()?.len()
+        );
 
         Ok(())
     }

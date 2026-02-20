@@ -44,6 +44,8 @@ pub trait WatcherTrait: Sized + Sync + Send {
     fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()>;
 
     fn remove(&mut self, service_id: &ServiceId);
+
+    fn has_watch(&self, service_id: &ServiceId) -> bool;
 }
 
 #[cfg(test)]
@@ -62,6 +64,7 @@ mod tests {
             MkTemp,
             libc::getpid,
             signal::{self, Signal},
+            wait_for,
         },
     };
     use serde_yaml_ng as yaml;
@@ -91,18 +94,19 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        std::thread::sleep(Duration::from_millis(100));
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         let file = temp.as_ref().join("test_file");
         tracing::trace!(?file, "creating test file");
         File::create(file)?;
-        std::thread::sleep(Duration::from_millis(300));
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
 
-        assert_eq!(service.info().restarts, 2);
+        wait_for!(
+            service.info().restarts == 2,
+            "restarts:{}",
+            service.info().restarts
+        )
+        .expect("failed to detect file creation");
 
         Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
@@ -134,27 +138,30 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        std::thread::sleep(Duration::from_millis(100));
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         tracing::trace!(file = ?file, "writing test file");
         File::options()
             .append(true)
             .open(&file)?
             .write_all(b"this is a test")?;
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-
-        assert_eq!(service.info().restarts, 2);
+        wait_for!(
+            service.info().restarts == 2,
+            "restarts:{}",
+            service.info().restarts
+        )
+        .expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         drop(temp);
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-
-        assert_eq!(service.info().restarts, 3);
+        wait_for!(
+            service.info().restarts == 3,
+            "restarts:{}",
+            service.info().restarts
+        )
+        .expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;
@@ -204,48 +211,44 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        std::thread::sleep(Duration::from_millis(100));
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         /* items in `paths` are always watched */
         File::options()
             .append(true)
             .open(AsRef::<PathBuf>::as_ref(&file))?
             .write_all(b"test")?;
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-        assert_eq!(service.info().restarts, 2);
+        wait_for!(
+            service.info().restarts == 2,
+            "restarts:{}",
+            service.info().restarts
+        )
+        .expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         /* ignored files */
         #[cfg(not(target_os = "macos"))]
         /* macos FSEvents implementation doesn't filter directories */
         File::create(make_path(&temp, ["invalid", "subdir", "toto.txt"]))?;
         File::create(make_path(&temp, ["valid", "subdir", "toto.not-txt"]))?;
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-        assert_eq!(service.info().restarts, 2);
+        wait_for!(service.info().restarts != 2, Duration::from_secs(1))
+            .expect_err("should not detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         File::create(make_path(&temp, ["valid", "subdir", "toto.txt"]))?;
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-        assert_eq!(service.info().restarts, 3);
+        wait_for!(service.info().restarts == 3).expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         /* directory is first processed as a file "another" and has to be validated */
         create_dir_all(make_path(&temp, ["valid", "subdir", "another"]))?;
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-        assert_eq!(service.info().restarts, 4);
+        wait_for!(service.info().restarts == 4).expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         /* watchs should have been re-created on paths, registering "another" */
         File::create(make_path(&temp, ["valid", "subdir", "another", "toto.txt"]))?;
-        std::thread::sleep(watch_restart_interval * 2);
-        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
-        std::thread::sleep(Duration::from_secs(5));
-        assert_eq!(service.info().restarts, 5);
+        wait_for!(service.info().restarts == 5).expect("failed to detect file change");
+        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
         Signal::kill(getpid(), signal::SIGTERM)?;
         join_handle.join().unwrap()?;

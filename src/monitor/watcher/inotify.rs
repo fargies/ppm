@@ -21,11 +21,9 @@
 */
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
-use libc::{POLLERR, POLLIN, nfds_t, poll, pollfd};
 use std::{
     fmt::{self, Debug},
     fs::read_dir,
-    io::{PipeReader, PipeWriter, Read, Write, pipe},
     os::fd::{AsRawFd, RawFd},
     path::Path,
     sync::{Arc, Mutex, Weak},
@@ -35,13 +33,13 @@ use std::{
 use super::{Monitor, WatcherTrait};
 use crate::{
     service::{ServiceId, Watch},
-    utils::{debug::DebugIter, libc::check},
+    utils::{
+        debug::DebugIter,
+        poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter},
+    },
 };
 
 use inotify::{Inotify, WatchMask, Watches};
-
-const WAKE_WORD: u8 = b'x';
-const EXIT_WORD: u8 = b'q';
 
 type WatchMap = Arc<DashMap<RawFd, Arc<WatchInfo>>>;
 
@@ -49,23 +47,19 @@ pub type Watcher = InotifyWatcher;
 
 /// Inotify based directory watcher
 pub struct InotifyWatcher {
-    tx: PipeWriter,
+    poller: PollerWriter,
     join_handle: Option<JoinHandle<()>>,
     watchs: WatchMap,
 }
 
 impl InotifyWatcher {
     pub fn wake(&mut self) {
-        if let Err(err) = self.tx.write(&[WAKE_WORD]) {
-            tracing::error!(?err, "failed to send wake-word");
-        }
+        self.poller.wake();
     }
 
     pub fn stop(&mut self) {
         if let Some(join_handle) = self.join_handle.take() {
-            if let Err(err) = self.tx.write(&[EXIT_WORD]) {
-                tracing::error!(?err, "failed to send exit-word");
-            }
+            self.poller.exit();
             if let Err(err) = join_handle.join() {
                 tracing::error!(?err, "watcher thread join error");
             }
@@ -79,15 +73,15 @@ impl WatcherTrait for InotifyWatcher {
     /// This does not register services
     fn new(monitor: Weak<Monitor>) -> Result<Self> {
         {
-            let (rx, tx) = pipe()?;
+            let (poller, poller_writer) = Poller::new();
             let mut ret = Self {
-                tx,
+                poller: poller_writer,
                 join_handle: None,
                 watchs: Arc::new(DashMap::new()),
             };
 
             let join_handle = {
-                let mut ctx = WatcherThreadContext::new(&ret, rx, monitor);
+                let mut ctx = WatcherThreadContext::new(&ret, poller, monitor);
                 std::thread::spawn(move || {
                     ctx.run()
                         .inspect_err(|err| tracing::error!(?err, "watcher thread error"))
@@ -116,41 +110,40 @@ impl WatcherTrait for InotifyWatcher {
             .retain(|_, value| &value.service_id != service_id);
         self.wake();
     }
+
+    fn has_watch(&self, service_id: &ServiceId) -> bool {
+        self.watchs
+            .iter()
+            .any(|value| &value.service_id == service_id)
+    }
 }
 
 struct WatcherThreadContext {
     watchs: WatchMap,
-    rx: PipeReader,
+    poller: Poller,
     monitor: Weak<Monitor>,
     buffer: Vec<u8>,
-    pfds: Vec<pollfd>,
 }
 
 impl WatcherThreadContext {
-    pub fn new(watcher: &Watcher, rx: PipeReader, monitor: Weak<Monitor>) -> Self {
+    pub fn new(watcher: &Watcher, poller: Poller, monitor: Weak<Monitor>) -> Self {
         Self {
             watchs: Arc::clone(&watcher.watchs),
-            rx,
+            poller,
             monitor,
             buffer: vec![0; 4096],
-            pfds: Vec::with_capacity(watcher.watchs.len() + 1),
         }
     }
 
-    fn prepare(&mut self) {
-        self.pfds.clear();
-        for pfd in self.watchs.iter().map(|x| pollfd {
-            fd: *x.key(),
-            events: POLLIN | POLLERR,
-            revents: 0,
-        }) {
-            self.pfds.push(pfd);
+    fn prepare(&self, pfds: &mut PollerFds) {
+        pfds.clear();
+
+        for watch in self.watchs.iter() {
+            pfds.push(
+                watch.key(),
+                PollerFlags::IN | PollerFlags::ERR | PollerFlags::NVAL,
+            );
         }
-        self.pfds.push(pollfd {
-            fd: self.rx.as_raw_fd(),
-            events: POLLIN | POLLERR,
-            revents: 0,
-        });
     }
 
     fn monitor(&self) -> Result<Arc<Monitor>> {
@@ -164,55 +157,44 @@ impl WatcherThreadContext {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        self.prepare();
-        let mut update_pfds = false;
+        let mut pfds = PollerFds::with_capacity(self.watchs.len());
+        let mut update_pfds = true;
 
         loop {
             let _span = tracing::info_span!(parent: None, "watcher").entered();
 
             if update_pfds {
-                self.prepare();
+                self.prepare(&mut pfds);
                 update_pfds = false;
             }
 
-            let mut ret = unsafe { poll(self.pfds.as_mut_ptr(), self.pfds.len() as nfds_t, -1) };
-            if ret < 0 {
-                check(ret).context("failed to poll")?;
-            }
+            let wake_word = self.poller.poll(&mut pfds).context("failed to poll")?;
+            tracing::trace!(?wake_word, events = ?DebugIter::new(pfds.iter()), "watcher awaken");
 
-            for pfd in self.pfds.iter().take(self.pfds.len() - 1) {
-                if pfd.revents == 0 {
-                    continue;
-                }
-
-                match self.get_info(pfd.fd) {
-                    Some(info) => update_pfds = info.process(&self.monitor()?, &mut self.buffer)?,
-                    None => update_pfds = true,
-                };
-
-                ret -= 1;
-                if ret <= 0 {
-                    break;
+            for (fd, flags) in pfds.iter() {
+                if flags.contains(PollerFlags::IN) {
+                    match self.get_info(fd) {
+                        Some(info) => {
+                            update_pfds = info.process(&self.monitor()?, &mut self.buffer)?
+                        }
+                        None => update_pfds = true,
+                    };
                 }
             }
 
-            if self.pfds.last().unwrap().revents != 0 {
-                let mut wake_word = [0u8; 1];
-                if self.rx.read(&mut wake_word)? == 1 {
-                    match wake_word[0] {
-                        WAKE_WORD => {
-                            update_pfds = true;
-                            tracing::trace!("wake-word received");
-                        }
-                        EXIT_WORD => {
-                            tracing::trace!("exit requested");
-                            return Ok(());
-                        }
-                        wake_word => {
-                            tracing::error!(wake_word, "unknown wake_word received")
-                        }
-                    }
+            match wake_word {
+                Some(PollerWord::Wake) => {
+                    update_pfds = true;
+                    tracing::trace!("wake-word received");
                 }
+                Some(PollerWord::Exit) => {
+                    tracing::trace!("exit requested");
+                    return Ok(());
+                }
+                Some(PollerWord::Custom(wake_word)) => {
+                    tracing::error!(wake_word, "unknown wake_word received")
+                }
+                None => (),
             }
         }
     }
@@ -243,6 +225,7 @@ pub struct WatchInfo {
 impl WatchInfo {
     pub fn new(service_id: &ServiceId, watch: &Watch) -> Result<Self> {
         let inotify = Inotify::init()?;
+        tracing::trace!(fd = inotify.as_raw_fd(), "new inotify watch");
 
         for path in watch.paths.iter() {
             /* configured paths are never excluded */
@@ -304,7 +287,8 @@ impl WatchInfo {
             .inotify
             .lock()
             .unwrap()
-            .read_events(buffer.as_mut_slice())?
+            .read_events(buffer.as_mut_slice())
+            .context("inotify error")?
         {
             match event.name {
                 Some(name) => {
@@ -339,5 +323,14 @@ impl WatchInfo {
 impl AsRawFd for WatchInfo {
     fn as_raw_fd(&self) -> RawFd {
         self.inotify.lock().unwrap().as_raw_fd()
+    }
+}
+
+impl Drop for WatchInfo {
+    fn drop(&mut self) {
+        tracing::trace!(
+            fd = self.inotify.lock().unwrap().as_raw_fd(),
+            "closing inotify watch"
+        );
     }
 }

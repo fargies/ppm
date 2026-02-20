@@ -92,6 +92,10 @@ impl WatcherTrait for FSEventWatcher {
     fn remove(&mut self, service_id: &ServiceId) {
         self.watchs.remove(service_id);
     }
+
+    fn has_watch(&self) -> bool {
+        self.watchs.contains(service_id)
+    }
 }
 
 bitflags::bitflags! {

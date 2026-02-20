@@ -107,34 +107,48 @@ impl<T> IntoArc<T> for T {
 }
 
 #[cfg(test)]
-pub fn _wait_for<F>(mut fun: F, expiry: std::time::Duration) -> anyhow::Result<()>
+#[tracing::instrument(level = "TRACE", name = "wait_for", skip(fun))]
+pub fn _wait_for<F, K>(mut fun: F, expiry: std::time::Duration) -> anyhow::Result<K>
 where
-    F: FnMut() -> anyhow::Result<()>,
+    F: FnMut() -> anyhow::Result<K>,
+    K: std::fmt::Debug,
 {
     let start = std::time::Instant::now();
+    let mut count = 0;
     while start.elapsed() <= expiry {
         match fun() {
-            Ok(ret) => return Ok(ret),
-            Err(err) => tracing::trace!(?err, "test failed, trying again in 10ms"),
+            Ok(ret) => {
+                if count != 0 {
+                    tracing::trace!(attemps = count);
+                    // tracing::trace!("test succeeded after {count} attempt(s)");
+                }
+                return Ok(ret);
+            }
+            Err(err) => {
+                if count == 0 {
+                    tracing::trace!(?err, "test failed, trying again in 10ms");
+                }
+                count += 1;
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    fun()
+    fun().inspect_err(|err| tracing::trace!(?err, "test failed"))
 }
 
 /// Test macro to poll a lambda until it validates
 ///
 /// # Details
-/// It'll return the last error on expiry
-/// Default timeout: 5 seconds
+/// It'll return the last error on expiry.
+///
+/// Default timeout: 5 seconds.\
+/// Polling interval: 10ms.
 ///
 /// # Usage
 /// ```rust
 /// # use std::time::Duration;
-///
 /// let value = true;
 /// wait_for!(value == true).expect("failed to check value");
-///
 /// wait_for!(value == true, "value failed to validate: {}", value)?;
 /// wait_for!(value == true, Duration::from_secs(1), "value: {}", value).expect("failed to check value");
 /// ```
@@ -144,7 +158,7 @@ macro_rules! wait_for {
         anyhow::ensure!($cond);
         return Ok(());
     }, std::time::Duration::from_secs(5)) };
-    ($cond:expr, $dur:expr, $(,)?) => { $crate::utils::_wait_for(|| {
+    ($cond:expr, $dur:expr $(,)?) => { $crate::utils::_wait_for(|| {
         anyhow::ensure!($cond);
         return Ok(());
     }, $dur) };

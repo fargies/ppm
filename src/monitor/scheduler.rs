@@ -183,7 +183,7 @@ impl Scheduler {
     /// - All [SchedulerEvent] from the same source (identical type and id) are
     ///   removed before this one is injected
     /// - returns true if the enqueued item is the most prioritary in the queue
-    #[tracing::instrument(level = "TRACE", skip(self))]
+    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     pub fn enqueue(&self, event: SchedulerEvent) -> bool {
         let stamp = *event.instant();
         let mut queue = self.queue();
@@ -219,6 +219,7 @@ pub struct SchedulerIterator<'a>(&'a Scheduler, Instant);
 impl Iterator for SchedulerIterator<'_> {
     type Item = SchedulerEvent;
 
+    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     fn next(&mut self) -> Option<Self::Item> {
         let mut queue = self.0._queue.lock().unwrap();
         if queue.peek().is_some_and(|d| d.instant() <= &self.1) {

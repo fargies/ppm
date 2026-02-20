@@ -70,7 +70,7 @@ static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
 });
 
 impl Signal {
-    #[tracing::instrument(level = "TRACE", err)]
+    #[tracing::instrument(level = "TRACE", err, ret)]
     pub fn kill<S>(pid: libc::pid_t, signal: S) -> Result<()>
     where
         S: Into<Signal> + Debug,
@@ -83,7 +83,7 @@ impl Signal {
     }
 
     #[cfg(target_os = "linux")]
-    #[tracing::instrument(level = "TRACE", err)]
+    #[tracing::instrument(level = "TRACE", err, ret)]
     pub fn set_pdeath_sig<S>(signal: S) -> Result<()>
     where
         S: Into<Signal> + Debug,
@@ -91,7 +91,7 @@ impl Signal {
         libc_check(unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, *signal.into()) })
     }
 
-    #[tracing::instrument(level = "TRACE", err)]
+    #[tracing::instrument(level = "TRACE", err, ret)]
     pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> Result<()>
     where
         S: Into<Signal> + Debug,
@@ -152,13 +152,13 @@ impl Debug for SignalSet {
 
 impl SignalSet {
     /// Block signals in the set
-    #[tracing::instrument(fields(pid= getpid(), tid = gettid()), level = "TRACE", err)]
+    #[tracing::instrument(fields(pid = getpid(), tid = gettid()), level = "TRACE", err, ret)]
     pub fn block(&self) -> Result<()> {
         unsafe { libc_check(libc::pthread_sigmask(libc::SIG_BLOCK, &self.0, null_mut())) }
     }
 
     /// Unblock signals in the set
-    #[tracing::instrument(fields(pid= getpid(), tid = gettid()), level = "TRACE", err)]
+    #[tracing::instrument(fields(pid = getpid(), tid = gettid()), level = "TRACE", err, ret)]
     pub fn unblock(&self) -> Result<()> {
         unsafe {
             libc_check(libc::pthread_sigmask(
