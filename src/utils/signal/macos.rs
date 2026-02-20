@@ -28,11 +28,12 @@ use dispatch2::{
     _dispatch_source_type_timer, DispatchObject, DispatchQueue, DispatchRetained, DispatchSource,
     DispatchTime, GlobalQueueIdentifier,
 };
-use libc::{pthread_kill, pthread_t};
+use libc::pthread_t;
 use std::os::raw::c_void;
 use std::time::Duration;
 
-use super::libc_check;
+use crate::utils::libc::gettid;
+use crate::utils::signal::{SIGALRM, Signal};
 
 pub struct Timer {
     source: DispatchRetained<DispatchSource>,
@@ -47,7 +48,7 @@ impl Default for Timer {
             let queue = DispatchQueue::global_queue(GlobalQueueIdentifier::QualityOfService(
                 dispatch2::DispatchQoS::Default,
             ));
-            let tid = libc::pthread_self();
+            let tid = gettid();
             let source = DispatchSource::new(
                 &_dispatch_source_type_timer as *const _ as *mut _,
                 0,
@@ -58,7 +59,7 @@ impl Default for Timer {
             source.set_context(tid as *mut c_void);
             source.set_event_handler_f(dispatch_function);
             source.resume();
-            tracing::trace!(tid, "timer created");
+            tracing::trace!(tid, ?source, "timer created");
 
             Self {
                 source,
@@ -73,7 +74,7 @@ impl Default for Timer {
 extern "C" fn dispatch_function(_arg: *mut c_void) {
     let tid = _arg as pthread_t;
     tracing::trace!(tid, "timer dispatched sending SIGALRM");
-    libc_check(unsafe { pthread_kill(_arg as pthread_t, libc::SIGALRM) }).unwrap();
+    Signal::kill_thread(tid, SIGALRM).unwrap();
 }
 
 impl Timer {
@@ -137,6 +138,7 @@ impl Timer {
 
 impl Drop for Timer {
     fn drop(&mut self) {
+        tracing::trace!(tid = gettid(), source = ?self.source, "timer cancelled");
         self.source.cancel();
     }
 }
