@@ -412,7 +412,10 @@ mod tests {
 
     use crate::{
         service::{Command, Status},
-        utils::signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
+        utils::{
+            signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
+            wait_for,
+        },
     };
     use anyhow::Result;
     use serial_test::serial;
@@ -483,14 +486,17 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        assert_eq!(1, service.info().restarts);
+        wait_for!(service.info().restarts == 1,
+            "restarts:{}", service.info().restarts)
+        .expect("failed to start");
+
         match service.info().pid {
             Some(pid) => Signal::kill(pid, SIGKILL)?,
             None => panic!("process not started"),
         };
-        std::thread::sleep(mon.restart_interval * 2);
-        assert_ne!(1, service.info().restarts);
+        wait_for!(service.info().restarts != 1,
+            "restarts:{}", service.info().restarts)
+        .expect("should have restarted");
 
         Signal::kill(getpid(), SIGTERM)?;
         join_handle.join().unwrap()?;
@@ -504,18 +510,18 @@ mod tests {
             stats_interval: std::time::Duration::from_millis(100),
             ..Default::default()
         });
-        mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
+        let service = mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
 
         let join_handle = {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        wait_for!(service.info().pid.is_some()).expect("not started");
         Signal::kill(getpid(), SIGTERM)?;
 
         join_handle.join().unwrap()?;
 
-        assert!(mon.services.iter().next().unwrap().info().restarts >= 1);
+        assert!(service.info().restarts >= 1);
         Ok(())
     }
 
@@ -534,18 +540,24 @@ mod tests {
         };
 
         std::thread::sleep(std::time::Duration::from_millis(100));
+        wait_for!(
+            service.info().pid.is_some()
+        ).expect("not started");
         let info = service.info();
         assert_ne!(None, info.pid);
 
         Signal::kill(info.pid.unwrap(), Signal(libc::SIGSTOP))?;
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        assert_eq!(service.info().status, Status::Stopped);
+        wait_for!(
+            service.info().status == Status::Stopped,
+            "status={:?}", service.info().status
+        ).expect("not stopped");
 
         Signal::kill(info.pid.unwrap(), Signal(libc::SIGCONT))?;
-        std::thread::sleep(mon.stats_interval * 2);
 
-        assert_eq!(service.info().status, Status::Running);
-
+        wait_for!(
+            service.info().status == Status::Running,
+            "status={:?}", service.info().status
+        ).expect("not running");
         Signal::kill(getpid(), SIGTERM)?;
 
         join_handle.join().unwrap()?;
