@@ -35,10 +35,11 @@ use objc2_core_foundation::{CFArray, CFString, kCFAllocatorDefault};
 use objc2_core_services::{
     ConstFSEventStreamRef, FSEventStreamContext, FSEventStreamCreate, FSEventStreamFlushSync,
     FSEventStreamRef, FSEventStreamRelease, FSEventStreamSetDispatchQueue, FSEventStreamStart,
-    FSEventStreamStop, kFSEventStreamCreateFlagFileEvents, kFSEventStreamEventFlagItemCreated,
-    kFSEventStreamEventFlagItemIsDir, kFSEventStreamEventFlagItemIsFile,
-    kFSEventStreamEventFlagItemModified, kFSEventStreamEventFlagItemRemoved,
-    kFSEventStreamEventFlagItemRenamed, kFSEventStreamEventIdSinceNow,
+    FSEventStreamStop, kFSEventStreamCreateFlagFileEvents, kFSEventStreamCreateFlagWatchRoot,
+    kFSEventStreamEventFlagItemCreated, kFSEventStreamEventFlagItemIsDir,
+    kFSEventStreamEventFlagItemIsFile, kFSEventStreamEventFlagItemModified,
+    kFSEventStreamEventFlagItemRemoved, kFSEventStreamEventFlagItemRenamed,
+    kFSEventStreamEventIdSinceNow,
 };
 
 use crate::{
@@ -171,11 +172,9 @@ impl WatchInfo {
             &watch
                 .paths
                 .iter()
-                .filter_map(|path| {
+                .map(|path| {
                     tracing::trace!(?path, "adding watch");
-                    Some(CFString::from_str(
-                        path.as_os_str().to_str().expect("invalid path"),
-                    ))
+                    CFString::from_str(path.as_os_str().to_str().expect("invalid path"))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -195,7 +194,7 @@ impl WatchInfo {
                 paths.as_ref(),
                 kFSEventStreamEventIdSinceNow,
                 0.2 as c_double,
-                kFSEventStreamCreateFlagFileEvents,
+                kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot,
             );
             FSEventStreamSetDispatchQueue(stream, Some(queue));
             FSEventStreamStart(stream);

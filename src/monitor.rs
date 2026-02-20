@@ -351,7 +351,8 @@ impl Monitor {
     /// Add watches for the given service
     ///
     /// Will remove existing watches and re-created it
-    fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
+    #[tracing::instrument(fields(service = service.id), skip(self, service))]
+    pub fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
         if let Some(watch) = service.watch.as_ref() {
             let mut guard = self.watcher.lock().unwrap();
             let watcher = match guard.as_mut() {

@@ -180,7 +180,7 @@ impl Logger {
         }
     }
 
-    #[tracing::instrument(skip(self, service))]
+    #[tracing::instrument(fields(service = service.id), skip(self, service))]
     pub fn make_pipe(&self, service: &Service) -> Result<(Stdio, Stdio)> {
         let mut pump = match self.logs.remove(&service.id) {
             Some((_, pump)) => pump,

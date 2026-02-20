@@ -143,6 +143,7 @@ impl Debug for SignalSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("SignalSet")
             .field(&format_args!("{:X}", unsafe {
+                #[allow(clippy::unnecessary_cast)] /* depends on [libc::sigset_t] implementation */
                 *(&self.0 as *const _ as *const u32)
             }))
             .finish()
