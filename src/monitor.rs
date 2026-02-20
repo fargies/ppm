@@ -422,7 +422,7 @@ mod tests {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
         tracing_subscriber::Registry::default()
             .with(tracing_subscriber::EnvFilter::from_default_env())
-            // .with(tracing_subscriber::fmt::layer().with_thread_ids(true)) // thread debugging
+            .with(tracing_subscriber::fmt::layer().with_thread_ids(true)) // thread debugging
             .with(tracing_forest::ForestLayer::default())
             .try_init();
 
