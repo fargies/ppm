@@ -105,3 +105,57 @@ impl<T> IntoArc<T> for T {
         Arc::new(self)
     }
 }
+
+#[cfg(test)]
+pub fn _wait_for<F>(mut fun: F, expiry: std::time::Duration) -> anyhow::Result<()>
+where
+    F: FnMut() -> anyhow::Result<()>,
+{
+    let start = std::time::Instant::now();
+    while start.elapsed() <= expiry {
+        match fun() {
+            Ok(ret) => return Ok(ret),
+            Err(err) => tracing::trace!(?err, "test failed, trying again in 10ms"),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    fun()
+}
+
+/// Test macro to poll a lambda until it validates
+///
+/// # Details
+/// It'll return the last error on expiry
+/// Default timeout: 5 seconds
+///
+/// # Usage
+/// ```rust
+/// # use std::time::Duration;
+///
+/// let value = true;
+/// wait_for!(value == true).expect("failed to check value");
+///
+/// wait_for!(value == true, "value failed to validate: {}", value)?;
+/// wait_for!(value == true, Duration::from_secs(1), "value: {}", value).expect("failed to check value");
+/// ```
+#[cfg(test)]
+macro_rules! wait_for {
+    ($cond:expr $(,)?) => { $crate::utils::_wait_for(|| {
+        anyhow::ensure!($cond);
+        return Ok(());
+    }, std::time::Duration::from_secs(5)) };
+    ($cond:expr, $dur:expr, $(,)?) => { $crate::utils::_wait_for(|| {
+        anyhow::ensure!($cond);
+        return Ok(());
+    }, $dur) };
+    ($cond:expr, $dur:expr, $msg:literal, $($arg:tt)* $(,)?) => { $crate::utils::_wait_for(|| {
+        anyhow::ensure!($cond, $msg, $($arg)*);
+        return Ok(());
+    }, $dur) };
+    ($cond:expr, $msg:literal, $($arg:tt)* $(,)?) => { $crate::utils::_wait_for(|| {
+        anyhow::ensure!($cond, $msg, $($arg)*);
+        return Ok(());
+    }, std::time::Duration::from_secs(5)) };
+}
+#[cfg(test)]
+pub(crate) use wait_for;
