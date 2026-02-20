@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
-    fn watch() -> Result<()> {
+    fn basic() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch")?;
 
         let mon = Arc::new(Monitor {
@@ -91,12 +91,17 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-
         std::thread::sleep(Duration::from_millis(100));
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
+
         let file = temp.as_ref().join("test_file");
         tracing::trace!(?file, "creating test file");
         File::create(file)?;
         std::thread::sleep(Duration::from_millis(300));
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
+
         assert_eq!(service.info().restarts, 2);
 
         Signal::kill(getpid(), signal::SIGTERM)?;
@@ -106,7 +111,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
-    fn watch_file() -> Result<()> {
+    fn single_file() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch-file")?;
         let file = temp.as_ref().join("file");
         let watch_restart_interval = Duration::from_millis(100);
@@ -123,23 +128,32 @@ mod tests {
             )?);
             mon.insert(srv)
         };
+
         let join_handle = {
             /* Monitor is handling dead processes */
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(Duration::from_millis(100));
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
 
-        tracing::trace!(file = ?AsRef::<PathBuf>::as_ref(&temp), "deleting test file");
+        tracing::trace!(file = ?file, "writing test file");
         File::options()
             .append(true)
             .open(&file)?
             .write_all(b"this is a test")?;
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
+
         assert_eq!(service.info().restarts, 2);
 
         drop(temp);
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
+
         assert_eq!(service.info().restarts, 3);
 
         Signal::kill(getpid(), signal::SIGTERM)?;
@@ -159,7 +173,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
-    fn watch_filters() -> Result<()> {
+    fn filters() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch-file")?;
         let file = MkTemp::file("ppm-watch-filter-file")?;
         let watch_restart_interval = Duration::from_millis(100);
@@ -191,6 +205,8 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         std::thread::sleep(Duration::from_millis(100));
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
 
         /* items in `paths` are always watched */
         File::options()
@@ -198,26 +214,37 @@ mod tests {
             .open(AsRef::<PathBuf>::as_ref(&file))?
             .write_all(b"test")?;
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
         assert_eq!(service.info().restarts, 2);
 
         /* ignored files */
+        #[cfg(not(target_os = "macos"))]
+        /* macos FSEvents implementation doesn't filter directories */
         File::create(make_path(&temp, ["invalid", "subdir", "toto.txt"]))?;
         File::create(make_path(&temp, ["valid", "subdir", "toto.not-txt"]))?;
-        std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
         assert_eq!(service.info().restarts, 2);
 
         File::create(make_path(&temp, ["valid", "subdir", "toto.txt"]))?;
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
         assert_eq!(service.info().restarts, 3);
 
         /* directory is first processed as a file "another" and has to be validated */
         create_dir_all(make_path(&temp, ["valid", "subdir", "another"]))?;
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
         assert_eq!(service.info().restarts, 4);
 
         /* watchs should have been re-created on paths, registering "another" */
         File::create(make_path(&temp, ["valid", "subdir", "another", "toto.txt"]))?;
         std::thread::sleep(watch_restart_interval * 2);
+        #[cfg(target_os = "macos")] /* FSEvents are really slow to register */
+        std::thread::sleep(Duration::from_secs(5));
         assert_eq!(service.info().restarts, 5);
 
         Signal::kill(getpid(), signal::SIGTERM)?;
