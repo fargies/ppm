@@ -93,8 +93,8 @@ impl WatcherTrait for FSEventWatcher {
         self.watchs.remove(service_id);
     }
 
-    fn has_watch(&self) -> bool {
-        self.watchs.contains(service_id)
+    fn has_watch(&self, service_id: &ServiceId) -> bool {
+        self.watchs.contains_key(service_id)
     }
 }
 
