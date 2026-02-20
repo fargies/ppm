@@ -361,6 +361,9 @@ impl Default for Service {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    use crate::utils::libc::waitpid;
+    #[cfg(target_os = "linux")]
     use std::{
         fs::File,
         io::{Read, Seek, Write},
@@ -369,7 +372,7 @@ mod tests {
     use crate::{
         monitor::Monitor,
         utils::{
-            libc::{getpid, waitpid},
+            libc::getpid,
             signal::{SIGALRM, SIGCHLD, SIGTERM},
         },
     };
