@@ -23,7 +23,7 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use libc::{POLLERR, POLLHUP, POLLIN, POLLOUT, c_short, nfds_t, poll, pollfd};
+use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, c_short, nfds_t, poll, pollfd};
 use std::{
     io::{PipeReader, PipeWriter, Read, Write, pipe},
     os::fd::{AsRawFd, RawFd},
@@ -44,6 +44,7 @@ bitflags::bitflags! {
         const OUT = POLLOUT;
         const ERR = POLLERR;
         const HUP = POLLHUP;
+        const NVAL = POLLNVAL;
     }
 }
 

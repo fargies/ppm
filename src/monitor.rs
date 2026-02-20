@@ -127,12 +127,14 @@ impl Monitor {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn on_sigchld(&self) {
-        self.waitpid(-1);
+    pub fn on_sigchld(&self) -> usize {
+        self.waitpid(-1)
     }
 
-    fn waitpid(&self, pid: libc::pid_t) {
+    fn waitpid(&self, pid: libc::pid_t) -> usize {
+        let mut count = 0;
         while let Some((pid, status)) = waitpid(pid, false) {
+            count += 1;
             if let Some(service) = self.find_by_pid(pid) {
                 if let Status::Crashed = service.set_terminated(pid, status) {
                     self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
@@ -144,6 +146,7 @@ impl Monitor {
                 tracing::warn!(pid, "unknown process");
             }
         }
+        count
     }
 
     fn next_restart(&self, info: &Info) -> Instant {
@@ -169,6 +172,7 @@ impl Monitor {
                 | SchedulerEvent::WatchServiceRestart { id, .. } => {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
+                            self.remove_watch(&service.id);
                             service.restart(self.logger.as_ref());
                             self.add_watch(&service)
                                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
@@ -242,7 +246,9 @@ impl Monitor {
                     tracing::info!("refreshing scheduler");
                     self.scheduler.init(self);
                 }
-                SIGCHLD => self.on_sigchld(),
+                SIGCHLD => {
+                    self.on_sigchld();
+                }
                 signal @ (SIGTERM | SIGINT) => {
                     tracing::info!("termination requested ({:?})", signal);
                     // timer.stop()?;
@@ -290,22 +296,27 @@ impl Monitor {
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
 
-        let wake = if service.schedule.is_some() {
-            self.scheduler.reschedule(&service, None)
+        let (watch, wake) = if service.schedule.is_some() {
+            (true, self.scheduler.reschedule(&service, None))
         } else if service.info().status != Status::Running {
-            self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
-                id: service.id,
-                instant: Instant::now(),
-            })
+            (
+                false,
+                self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
+                    id: service.id,
+                    instant: Instant::now(),
+                }),
+            )
         } else {
-            false
+            (true, false)
         };
         if wake {
             self.wake();
         }
 
-        self.add_watch(&service)
-            .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
+        if watch && self.is_running() {
+            self.add_watch(&service)
+                .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
+        }
         service
     }
 
@@ -365,15 +376,24 @@ impl Monitor {
     }
 
     /// Remove watches related to given service
-    fn remove_watch(self: &Arc<Self>, service_id: &ServiceId) {
+    #[tracing::instrument(skip(self))]
+    pub fn remove_watch(&self, service: &ServiceId) {
         let mut guard = self.watcher.lock().unwrap();
         if let Some(watcher) = guard.as_mut() {
-            watcher.remove(service_id);
+            watcher.remove(service);
         }
     }
 
+    pub fn has_watch(&self, service: &ServiceId) -> bool {
+        let mut guard = self.watcher.lock().unwrap();
+        if let Some(watcher) = guard.as_mut() {
+            return watcher.has_watch(service);
+        }
+        false
+    }
+
     /// Remove service
-    pub fn remove(self: &Arc<Self>, service_id: &ServiceId) {
+    pub fn remove(&self, service_id: &ServiceId) {
         self.services.remove(service_id);
         /* don't wake, worst case there'll be a spurious wakeup */
         self.scheduler.remove(service_id);
@@ -393,6 +413,10 @@ impl Monitor {
         {
             tracing::trace!(?err, "failed to wake monitor");
         }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.tid.lock().unwrap().is_some()
     }
 }
 
@@ -426,7 +450,7 @@ mod tests {
         tracing_subscriber::Registry::default()
             .with(tracing_subscriber::EnvFilter::from_default_env())
             .with(tracing_subscriber::fmt::layer().with_thread_ids(true)) // thread debugging
-            .with(tracing_forest::ForestLayer::default())
+            // .with(tracing_forest::ForestLayer::default())
             .try_init();
 
         // rust test framewrok uses threads, the main process may handle signals
@@ -440,8 +464,12 @@ mod tests {
         mon.insert(Service::new("test_stop", Command::new("ls", ["-la"])));
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
         mon.services.iter().for_each(|s| s.start(None));
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        mon.on_sigchld();
+
+        wait_for!({
+            mon.on_sigchld();
+            mon.services.iter().all(|s| s.info().pid.is_none())
+        })
+        .expect("all process should stop");
 
         for service in mon.services.iter() {
             let info = service.info();
@@ -486,16 +514,22 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        wait_for!(service.info().restarts == 1,
-            "restarts:{}", service.info().restarts)
+        wait_for!(
+            service.info().restarts == 1,
+            "restarts:{}",
+            service.info().restarts
+        )
         .expect("failed to start");
 
         match service.info().pid {
             Some(pid) => Signal::kill(pid, SIGKILL)?,
             None => panic!("process not started"),
         };
-        wait_for!(service.info().restarts != 1,
-            "restarts:{}", service.info().restarts)
+        wait_for!(
+            service.info().restarts != 1,
+            "restarts:{}",
+            service.info().restarts
+        )
         .expect("should have restarted");
 
         Signal::kill(getpid(), SIGTERM)?;
@@ -538,26 +572,26 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        wait_for!(
-            service.info().pid.is_some()
-        ).expect("not started");
+        wait_for!(service.info().pid.is_some()).expect("not started");
         let info = service.info();
         assert_ne!(None, info.pid);
 
         Signal::kill(info.pid.unwrap(), Signal(libc::SIGSTOP))?;
         wait_for!(
             service.info().status == Status::Stopped,
-            "status={:?}", service.info().status
-        ).expect("not stopped");
+            "status={:?}",
+            service.info().status
+        )
+        .expect("not stopped");
 
         Signal::kill(info.pid.unwrap(), Signal(libc::SIGCONT))?;
 
         wait_for!(
             service.info().status == Status::Running,
-            "status={:?}", service.info().status
-        ).expect("not running");
+            "status={:?}",
+            service.info().status
+        )
+        .expect("not running");
         Signal::kill(getpid(), SIGTERM)?;
 
         join_handle.join().unwrap()?;

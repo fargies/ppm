@@ -374,6 +374,7 @@ mod tests {
         utils::{
             libc::getpid,
             signal::{SIGALRM, SIGCHLD, SIGTERM},
+            wait_for,
         },
     };
 
@@ -398,10 +399,12 @@ mod tests {
         assert!(service.info().pid.is_some_and(|pid| pid > 0));
         assert_eq!(service.info().status, Status::Running);
 
-        // wait for command to terminate
-        std::thread::sleep(Duration::from_millis(100));
-
-        mon.on_sigchld();
+        wait_for!(
+            mon.on_sigchld() != 0 && service.info().pid.is_none(),
+            "pid:{:?}",
+            service.info().pid
+        )
+        .expect("service should terminate");
 
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
@@ -467,9 +470,8 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        // Wait a bit for fork to exec
-        std::thread::sleep(Duration::from_millis(100));
-        let pid = service.info().pid.expect("pid should be set");
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        let pid = service.info().pid.unwrap();
         assert_eq!(std::fs::read_link(format!("/proc/{pid}/cwd"))?, temp_dir);
 
         service.stop();
