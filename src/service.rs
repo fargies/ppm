@@ -478,6 +478,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
+    #[cfg(target_os = "linux")]
     /// Run this test with `-- --no-capture` to see messages from child
     fn child_kill_subreap() -> Result<()> {
         let mut fd = File::options()

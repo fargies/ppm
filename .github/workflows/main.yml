@@ -4,6 +4,7 @@ on: [workflow_dispatch, push]
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_LOG: trace
 
 jobs:
   build-ubuntu-default:
@@ -29,6 +30,6 @@ jobs:
       - name: Build project
         run: cargo build
       - name: Run tests
-        run: cargo test
+        run: cargo test -- --no-capture
       - name: Run clippy
         run: cargo clippy -- -D warnings
