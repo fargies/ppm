@@ -313,6 +313,8 @@ mod tests {
     use serial_test::serial;
     use std::time::Duration;
 
+    use crate::utils::wait_for;
+
     use super::*;
     use anyhow::Result;
 
@@ -381,9 +383,8 @@ mod tests {
             .set_interval(Duration::from_millis(25))
             .start()?;
 
-        std::thread::sleep(Duration::from_millis(30));
-        tracing::trace!(pending= ?SignalSet::pending());
-        assert!(SignalSet::pending().contains(SIGALRM));
+        wait_for!(SignalSet::pending().contains(SIGALRM)).expect("SIGALRM should be in the set");
+        tracing::trace!(pending = ?SignalSet::pending());
         assert_eq!(SIGALRM, sigset.wait()?);
         assert_eq!(SIGALRM, sigset.wait()?);
 
