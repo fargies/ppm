@@ -28,8 +28,9 @@ use std::{
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use crate::{
@@ -47,6 +48,7 @@ pub struct Server {
     pub socket: TcpListener,
     pub monitor: Arc<Monitor>,
     pub connections: Arc<AtomicUsize>,
+    running: AtomicBool,
 }
 
 pub struct ServerToken(Arc<AtomicUsize>);
@@ -73,18 +75,25 @@ impl Server {
             socket: TcpListener::bind(addr).context("failed to listen")?,
             monitor,
             connections: AtomicUsize::new(0).into(),
+            running: AtomicBool::new(false),
         };
         tracing::info!(addr = ?ret.socket.local_addr()?, "listening");
         Ok(ret)
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn run(&self) {
+    #[tracing::instrument(skip(self), ret, err)]
+    pub fn run(&self) -> Result<()> {
         loop {
-            let _span = tracing::info_span!(parent: None, "server").entered();
+            let _span = tracing::info_span!(parent: None, "server:run").entered();
+            self.running.store(true, Ordering::Relaxed);
 
             match self.socket.accept() {
                 Ok(stream) => {
+                    if !self.running.load(Ordering::Relaxed) {
+                        tracing::info!("shutdown request");
+                        stream.0.shutdown(Shutdown::Both)?;
+                        return Ok(());
+                    }
                     let (token, count) = ServerToken::new(&self.connections);
                     if count > MAX_CONNECTIONS {
                         tracing::error!(client = ?stream.1, "connection rejected");
@@ -105,11 +114,22 @@ impl Server {
                     }
                 }
                 Err(error) => {
-                    tracing::error!(?error, "socket error");
-                    break;
+                    return Err(error.into());
                 }
             }
         }
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    pub fn stop(&self) -> Result<()> {
+        self.running.store(false, Ordering::Relaxed);
+        if let Err(err) =
+            TcpStream::connect_timeout(&self.socket.local_addr()?, Duration::from_secs(5))
+                .and_then(|stream| stream.shutdown(Shutdown::Both))
+        {
+            tracing::trace!(?err, "server connetion error");
+        }
+        Ok(())
     }
 
     fn find_service(monitor: &Monitor, service: &String) -> Option<Arc<Service>> {
@@ -252,6 +272,7 @@ mod tests {
     use crate::{
         cmdline::Client,
         service::{Command, Service},
+        utils::OnDrop,
     };
 
     use super::*;
@@ -263,13 +284,21 @@ mod tests {
     fn request() -> Result<()> {
         let monitor = Monitor::new();
         monitor.insert(Service::new("test", Command::new("ls", ["-la"])));
-        let server = Server::new(monitor, "127.0.0.1:0")?;
+        let server = Arc::new(Server::new(monitor, "127.0.0.1:0")?);
         let addr = server.socket.local_addr()?;
 
-        std::thread::spawn(move || server.run());
+        let join_handle = {
+            let server = Arc::clone(&server);
+            std::thread::spawn(move || server.run())
+        };
+        let _drop_guard = OnDrop::new(|| {
+            server.stop().unwrap();
+            join_handle.join().unwrap().unwrap();
+        });
 
         let client = Client::connect(addr)?;
         client.run(&Action::Info).expect("command failed");
+
         Ok(())
     }
 }

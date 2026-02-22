@@ -60,13 +60,16 @@ impl LogPump {
 
         let ret = file.read(buffer.raw());
         match ret {
-            Ok(sz) => match self.log(buffer.set_range(..sz).as_slice()) {
-                sz if !buffer.consume(sz).is_empty() => {
-                    self.buffer = Some(buffer);
-                    None
+            Ok(sz) => {
+                tracing::trace!(sz, fd, "bytes to log");
+                match self.log(buffer.set_range(..sz).as_slice()) {
+                    sz if !buffer.consume(sz).is_empty() => {
+                        self.buffer = Some(buffer);
+                        None
+                    }
+                    _ => Some(buffer),
                 }
-                _ => Some(buffer),
-            },
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => Some(buffer),
             Err(err) => {
                 tracing::error!(?err, "input error");
@@ -106,6 +109,7 @@ impl LogPump {
     pub fn on_hup(&mut self, fd: RawFd) -> Option<Buffer> {
         if let Some(index) = self.input.iter().position(|file| file.as_raw_fd() == fd) {
             /* hup is silent on inputs */
+            tracing::trace!(?fd, "removing");
             self.input.remove(index);
             None
         } else {
@@ -136,6 +140,11 @@ impl LogPump {
         let (reader_err, writer_err) = pipe().context("failed to create pipe")?;
         reader_err.set_nonblocking()?;
 
+        tracing::trace!(
+            fd_out = reader_out.as_raw_fd(),
+            fd_err = reader_err.as_raw_fd(),
+            "creating input pipe"
+        );
         self.input.push(reader_out);
         self.input.push(reader_err);
 

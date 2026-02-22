@@ -85,7 +85,7 @@ fn main() -> Result<()> {
                 .with_default_directive(LevelFilter::INFO.into())
                 .from_env_lossy(),
         )
-        .with(fmt::layer())
+        .with(fmt::layer().with_target(false))
         .init();
 
     let addr = std::env::var("PPM_LISTEN")

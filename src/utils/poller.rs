@@ -91,6 +91,10 @@ impl PollerFds {
             })
             .take(self.events.unwrap_or(self.pfds.len()))
     }
+
+    pub fn inner(&self) -> &Vec<pollfd> {
+        &self.pfds
+    }
 }
 
 impl Poller {

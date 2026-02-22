@@ -55,6 +55,7 @@ pub fn getpid() -> pid_t {
 }
 
 /// Invoke waitpid in non-blocking mode
+#[tracing::instrument(level = "TRACE", ret)]
 pub fn waitpid(pid: pid_t, blocking: bool) -> Option<(pid_t, c_int)> {
     let mut status: c_int = 0;
     let ret = unsafe {

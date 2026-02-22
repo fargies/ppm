@@ -126,11 +126,12 @@ impl Monitor {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     pub fn on_sigchld(&self) -> usize {
         self.waitpid(-1)
     }
 
+    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     fn waitpid(&self, pid: libc::pid_t) -> usize {
         let mut count = 0;
         while let Some((pid, status)) = waitpid(pid, false) {
@@ -437,6 +438,7 @@ mod tests {
     use crate::{
         service::{Command, Status},
         utils::{
+            OnDrop,
             signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
             wait_for,
         },
@@ -449,7 +451,13 @@ mod tests {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
         tracing_subscriber::Registry::default()
             .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(tracing_subscriber::fmt::layer().with_thread_ids(true)) // thread debugging
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_thread_ids(true)
+                    .with_file(true)
+                    .with_line_number(true)
+                    .with_target(false),
+            ) // thread debugging
             // .with(tracing_forest::ForestLayer::default())
             .try_init();
 
@@ -500,6 +508,11 @@ mod tests {
         sigset.restore()
     }
 
+    fn kill_monitor(join_handle: std::thread::JoinHandle<Result<()>>) {
+        Signal::kill(getpid(), SIGTERM).unwrap();
+        join_handle.join().unwrap().unwrap();
+    }
+
     #[test]
     #[serial(waitpid)]
     /// ensure that signals are unblocked for the child process
@@ -514,6 +527,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
         wait_for!(
             service.info().restarts == 1,
             "restarts:{}",
@@ -532,30 +546,25 @@ mod tests {
         )
         .expect("should have restarted");
 
-        Signal::kill(getpid(), SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 
     #[test]
     #[serial(waitpid)]
-    fn run() -> Result<()> {
+    fn restart() -> Result<()> {
         let mon = Arc::new(Monitor {
             stats_interval: std::time::Duration::from_millis(100),
             ..Default::default()
         });
-        let service = mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
+        let service = mon.insert(Service::new("test_restart", Command::new("false", ["-la"])));
 
         let join_handle = {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        wait_for!(service.info().pid.is_some()).expect("not started");
-        Signal::kill(getpid(), SIGTERM)?;
+        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        wait_for!(service.info().restarts > 1).expect("not restarted");
 
-        join_handle.join().unwrap()?;
-
-        assert!(service.info().restarts >= 1);
         Ok(())
     }
 
@@ -572,6 +581,8 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+
         wait_for!(service.info().pid.is_some()).expect("not started");
         let info = service.info();
         assert_ne!(None, info.pid);
@@ -592,9 +603,7 @@ mod tests {
             service.info().status
         )
         .expect("not running");
-        Signal::kill(getpid(), SIGTERM)?;
 
-        join_handle.join().unwrap()?;
         Ok(())
     }
 }

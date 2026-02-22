@@ -119,8 +119,7 @@ where
         match fun() {
             Ok(ret) => {
                 if count != 0 {
-                    tracing::trace!(attemps = count);
-                    // tracing::trace!("test succeeded after {count} attempt(s)");
+                    tracing::trace!(attemps = count, "Ok({ret:?})");
                 }
                 return Ok(ret);
             }

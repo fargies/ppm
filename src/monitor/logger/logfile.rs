@@ -165,11 +165,7 @@ impl LogFile {
                 }
 
                 let file = self.log_dir.join(self.make_filename());
-                if files.is_empty() {
-                    tracing::info!(name = self.log_name, ?file, "creating new log file");
-                } else {
-                    tracing::info!(name = self.log_name, ?file, "rotating log file");
-                }
+
                 File::options()
                     .create(true)
                     .write(true)
@@ -177,6 +173,18 @@ impl LogFile {
                     .open(&file)
                     .inspect_err(|err| tracing::error!(?err, ?file, "failed to open log-file"))
                     .inspect(|f| {
+                        tracing::info!(
+                            fd = f.as_raw_fd(),
+                            name = self.log_name,
+                            ?file,
+                            "{}",
+                            if files.is_empty() {
+                                "creating new log file"
+                            } else {
+                                "rotating log file"
+                            }
+                        );
+
                         self.written = 0;
                         f.set_nonblocking().unwrap_or_else(|err| {
                             tracing::error!(?err, "failed to set non-blocking")

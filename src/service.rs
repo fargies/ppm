@@ -58,30 +58,38 @@ pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
 
+fn get_service_id_default() -> usize {
+    SERVICE_ID_INVALID
+}
+
 #[derive(Serialize, Deserialize)]
-#[serde(default)]
 pub struct Service {
     /// Service ID
-    #[serde(skip_serializing_if = "is_invalid_id")]
+    #[serde(
+        skip_serializing_if = "is_invalid_id",
+        default = "get_service_id_default"
+    )]
     pub id: ServiceId,
     /// Service name
+    #[serde(default)]
     pub name: String,
     /// Command to run
+    #[serde(default)]
     pub command: Command,
     /// Workdir for the service
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub workdir: Option<String>,
     /// Command schedule for periodic commands
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub schedule: Option<Cron>,
     /// Directory watchs to monitor
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub watch: Option<Watch>,
     /// Running process informations
-    #[serde(skip)]
+    #[serde(skip, default)]
     _info: Mutex<Arc<Info>>,
     /// Running process statistics
-    #[serde(skip)]
+    #[serde(skip, default)]
     _stats: Mutex<Arc<Stats>>,
 }
 
@@ -134,7 +142,7 @@ impl Service {
         Ok(self)
     }
 
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self, logger))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self, logger))]
     pub fn start<'a, L>(&self, logger: L)
     where
         L: Into<Option<&'a Logger>>,
@@ -142,7 +150,7 @@ impl Service {
         self.restart(logger)
     }
 
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self, logger))]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self, logger), ret(level = "TRACE"))]
     pub fn restart<'a, L>(&self, logger: L)
     where
         L: Into<Option<&'a Logger>>,
@@ -197,6 +205,7 @@ impl Service {
         }
     }
 
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret(level = "TRACE"))]
     pub fn set_active(&self, value: bool) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).active = value;
@@ -206,7 +215,7 @@ impl Service {
     ///
     /// May timeout when called from [Monitor] thread, waiting for zombie to be
     /// released.
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret(level = "TRACE"))]
     pub fn stop(&self) {
         {
             let mut guard = self._info.lock().unwrap();
@@ -216,9 +225,9 @@ impl Service {
         if let Some(pid) = self.info().pid {
             tracing::debug!(pid, "trying to stop");
             if self.terminate(pid, SIGTERM, &Duration::from_secs(5)) {
-                tracing::info!(pid, "process terminated");
+                tracing::trace!(pid, "process terminated");
             } else if self.terminate(pid, signal::SIGKILL, &Duration::from_secs(10)) {
-                tracing::info!(pid, "process killed");
+                tracing::trace!(pid, "process killed");
             } else {
                 tracing::error!("failed to kill process");
             }
@@ -231,7 +240,7 @@ impl Service {
     ///
     /// This will not update the service `info`, the `Monitor` thread should
     /// do using `waitpid`
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
     fn terminate(&self, pid: pid_t, signal: Signal, timeout: &Duration) -> bool {
         if Signal::kill(pid, signal).is_err() {
             // already dead
@@ -298,7 +307,7 @@ impl Service {
     /// Set service as [Status::Crashed]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
     pub fn set_crashed(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_crashed();
@@ -307,7 +316,7 @@ impl Service {
     /// Set service as [Status::Finished]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
     pub fn set_finished(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_finished();
@@ -316,7 +325,7 @@ impl Service {
     /// Set service as [Status::Stopped]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
     pub fn set_stopped(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_stopped();
@@ -325,7 +334,7 @@ impl Service {
     /// Set service as [Status::Running]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(fields(name=self.name, id=self.id), skip(self))]
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
     pub fn set_running(&self, pid: pid_t) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_running(pid);
@@ -359,6 +368,12 @@ impl Default for Service {
     }
 }
 
+impl Drop for Service {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
@@ -372,6 +387,7 @@ mod tests {
     use crate::{
         monitor::Monitor,
         utils::{
+            OnDrop,
             libc::getpid,
             signal::{SIGALRM, SIGCHLD, SIGTERM},
             wait_for,
@@ -414,6 +430,11 @@ mod tests {
         Ok(())
     }
 
+    fn kill_monitor(join_handle: std::thread::JoinHandle<Result<()>>) {
+        Signal::kill(getpid(), SIGTERM).unwrap();
+        join_handle.join().unwrap().unwrap();
+    }
+
     #[test]
     #[serial(waitpid)]
     fn stop() -> Result<()> {
@@ -428,6 +449,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
 
         assert!(service.info().pid.is_some_and(|pid| pid > 0));
         assert_eq!(service.info().status, Status::Running);
@@ -438,8 +460,6 @@ mod tests {
         assert_eq!(service.info().pid, None);
         assert_eq!(service.info().status, Status::Finished);
 
-        Signal::kill(getpid(), SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 
@@ -470,14 +490,15 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+
         wait_for!(service.info().pid.is_some()).expect("not started");
         let pid = service.info().pid.unwrap();
-        assert_eq!(std::fs::read_link(format!("/proc/{pid}/cwd"))?, temp_dir);
+        wait_for!(std::fs::read_link(format!("/proc/{pid}/cwd"))? == temp_dir)
+            .expect("failed to switch to workdir");
 
         service.stop();
 
-        Signal::kill(getpid(), SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 
