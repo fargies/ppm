@@ -113,8 +113,12 @@ impl Server {
                         });
                     }
                 }
-                Err(error) => {
-                    return Err(error.into());
+                Err(err) => {
+                    if !self.running.fetch_and(false, Ordering::Relaxed) {
+                        tracing::trace!(?err, "socket error");
+                        return Ok(());
+                    }
+                    return Err(err.into());
                 }
             }
         }
