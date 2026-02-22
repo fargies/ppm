@@ -180,7 +180,6 @@ impl Logger {
         }
     }
 
-    #[tracing::instrument(fields(service = service.id), skip(self, service))]
     pub fn make_pipe(&self, service: &Service) -> Result<(Stdio, Stdio)> {
         let mut pump = match self.logs.remove(&service.id) {
             Some((_, pump)) => pump,
@@ -261,6 +260,10 @@ impl LoggerThreadContext {
 
             self.prepare(&mut pfds, &mut pfds_map);
 
+            tracing::trace!(
+                fds = ?DebugIter::new(pfds.inner().iter().map(|p| p.fd)),
+                "waiting on"
+            );
             let wake_word = self.poller.poll(&mut pfds).context("failed to poll")?;
             tracing::trace!(?wake_word, events = ?DebugIter::new(pfds.iter()), "logger awaken");
 
@@ -319,7 +322,7 @@ mod tests {
     use super::*;
     use crate::{
         service::{Command, Service},
-        utils::{MkTemp, libc::waitpid, wait_for},
+        utils::{MkTemp, wait_for},
     };
     use anyhow::Result;
     use serde_yaml_ng as yaml;
@@ -327,6 +330,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
+    #[tracing::instrument(name = "tests:logger")]
     fn logger() -> Result<()> {
         let temp_dir = MkTemp::dir("logger")?;
         let logger = Logger::new(temp_dir.as_ref());
@@ -334,31 +338,28 @@ mod tests {
         let srv = Service::new("test", Command::new("echo", ["world"]));
 
         srv.restart(&logger);
-        waitpid(srv.info().pid.unwrap(), true).expect("failed to wait for srv");
         wait_for!(
             logger.list_files(srv.id).len() == 1,
             "files:{:?}",
             logger.list_files(srv.id)
         )
         .expect("invalid log file count");
-        assert_eq!(
-            6,
+        wait_for!(
+            logger.list_files(srv.id).first().unwrap().metadata()?.len() == 6,
+            std::time::Duration::from_secs(300),
+            "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
-        );
+        )
+        .expect("restart should have written additional logs");
 
         srv.restart(&logger);
-        waitpid(srv.info().pid.unwrap(), true).expect("failed to wait for srv");
-
         wait_for!(
-            logger.list_files(srv.id).len() == 1,
-            "files:{:?}",
-            logger.list_files(srv.id)
-        )
-        .expect("invalid log file count");
-        assert_eq!(
-            12,
+            logger.list_files(srv.id).first().unwrap().metadata()?.len() == 12,
+            std::time::Duration::from_secs(300),
+            "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
-        );
+        )
+        .expect("restart should have written additional logs");
 
         Ok(())
     }

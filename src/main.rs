@@ -35,7 +35,7 @@ pub mod utils;
 fn main() -> Result<()> {
     Registry::default()
         .with(EnvFilter::from_default_env())
-        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(fmt::layer().with_writer(std::io::stderr).with_target(false))
         .init();
 
     let args = Args::parse();
