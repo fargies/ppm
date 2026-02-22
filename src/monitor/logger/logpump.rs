@@ -60,8 +60,12 @@ impl LogPump {
 
         let ret = file.read(buffer.raw());
         match ret {
+            Ok(0) => {
+                tracing::trace!(fd, "nothing to log");
+                Some(buffer)
+            }
             Ok(sz) => {
-                tracing::trace!(sz, fd, "bytes to log");
+                tracing::trace!(sz, fd, "writing to log");
                 match self.log(buffer.set_range(..sz).as_slice()) {
                     sz if !buffer.consume(sz).is_empty() => {
                         self.buffer = Some(buffer);
