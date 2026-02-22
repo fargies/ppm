@@ -285,7 +285,13 @@ impl LoggerThreadContext {
 
                 if let Some(buffer) = if flags.contains(PollerFlags::IN) {
                     pump.on_input_ready(fd, self.take_buffer())
-                } else if flags.contains(PollerFlags::HUP) {
+                } else {
+                    None
+                } {
+                    self.buffers.push_back(buffer);
+                }
+
+                if let Some(buffer) = if flags.contains(PollerFlags::HUP) {
                     pump.on_hup(fd)
                 } else if flags.contains(PollerFlags::ERR) {
                     pump.on_error(fd)
