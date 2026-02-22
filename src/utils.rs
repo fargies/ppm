@@ -48,6 +48,8 @@ pub mod debug;
 mod buffer;
 pub use buffer::Buffer;
 
+pub mod tracing_utils;
+
 #[cfg(test)]
 mod mktemp;
 #[cfg(test)]

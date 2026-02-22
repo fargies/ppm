@@ -440,6 +440,7 @@ mod tests {
         utils::{
             OnDrop,
             signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
+            tracing_utils::is_log_color,
             wait_for,
         },
     };
@@ -456,7 +457,9 @@ mod tests {
                     .with_thread_ids(true)
                     .with_file(true)
                     .with_line_number(true)
-                    .with_target(false),
+                    .with_target(false)
+                    .with_writer(std::io::stdout)
+                    .with_ansi(is_log_color(&std::io::stdout())),
             ) // thread debugging
             // .with(tracing_forest::ForestLayer::default())
             .try_init();
