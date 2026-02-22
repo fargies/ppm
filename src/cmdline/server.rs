@@ -91,7 +91,7 @@ impl Server {
                 Ok(stream) => {
                     if !self.running.load(Ordering::Relaxed) {
                         tracing::info!("shutdown request");
-                        stream.0.shutdown(Shutdown::Both)?;
+                        stream.0.shutdown(Shutdown::Both).unwrap_or(());
                         return Ok(());
                     }
                     let (token, count) = ServerToken::new(&self.connections);
@@ -118,6 +118,7 @@ impl Server {
                         tracing::trace!(?err, "socket error");
                         return Ok(());
                     }
+                    tracing::info!(running = self.running.load(Ordering::Relaxed), "running?");
                     return Err(err.into());
                 }
             }
