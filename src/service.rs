@@ -167,14 +167,19 @@ impl Service {
             .and_then(|l| l.make_pipe(self).ok())
             .unwrap_or_else(|| (process::Stdio::inherit(), process::Stdio::inherit()));
 
+        // tracing calls [Write::write_all] on its writer
+        // if locked when forking the child will deadlock
+        let iolocks = (std::io::stdout().lock(), std::io::stderr().lock());
         match unsafe { libc::fork() } {
             x if x < 0 => {
                 tracing::error!("failed to fork");
             }
             0 => {
+                drop(iolocks);
                 SignalSet::full()
                     .restore()
                     .expect("failed to restore default signal handlers");
+
                 #[cfg(target_os = "linux")]
                 if let Err(err) = Signal::set_pdeath_sig(SIGTERM) {
                     tracing::error!(?err, "failed to set pdeath signal");
@@ -198,6 +203,7 @@ impl Service {
                 std::process::exit(-1);
             }
             pid => {
+                drop(iolocks);
                 let info = Arc::make_mut(&mut guard);
                 info.active = true;
                 info.set_running(pid);
