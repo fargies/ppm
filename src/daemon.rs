@@ -32,9 +32,6 @@ use std::{
 
 use cmdline::DEFAULT_ADDR;
 use monitor::Monitor;
-use tracing_subscriber::{
-    EnvFilter, Registry, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
 
 pub mod cmdline;
 pub mod monitor;
@@ -42,6 +39,8 @@ pub mod service;
 
 mod utils;
 use utils::LoadFromFile;
+
+use crate::utils::tracing_utils::tracing_init;
 
 #[tracing::instrument(ret)]
 pub fn find_config_file() -> Option<PathBuf> {
@@ -79,14 +78,7 @@ fn main() -> Result<()> {
         // See man (3) mallopt
         libc::mallopt(libc::M_ARENA_MAX, 1);
     }
-    Registry::default()
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
-        .with(fmt::layer().with_target(false))
-        .init();
+    tracing_init(std::io::stdout, Some("info"))?;
 
     let addr = std::env::var("PPM_LISTEN")
         .ok()

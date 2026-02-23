@@ -21,11 +21,11 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use crate::utils::tracing_utils::tracing_init;
 use anyhow::Result;
 use clap::Parser;
 use cmdline::{Action, Args, Client};
 use std::{env::current_exe, os::unix::process::CommandExt, path::Path, process};
-use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod cmdline;
 pub mod monitor;
@@ -33,10 +33,7 @@ pub mod service;
 pub mod utils;
 
 fn main() -> Result<()> {
-    Registry::default()
-        .with(EnvFilter::from_default_env())
-        .with(fmt::layer().with_writer(std::io::stderr).with_target(false))
-        .init();
+    tracing_init(std::io::stderr, None)?;
 
     let args = Args::parse();
     match args.action {

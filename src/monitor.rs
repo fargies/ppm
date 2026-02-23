@@ -440,7 +440,7 @@ mod tests {
         utils::{
             OnDrop,
             signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
-            tracing_utils::is_log_color,
+            tracing_utils::tracing_init,
             wait_for,
         },
     };
@@ -449,20 +449,7 @@ mod tests {
 
     #[ctor::ctor]
     fn prepare() {
-        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_thread_ids(true)
-                    .with_file(true)
-                    .with_line_number(true)
-                    .with_target(false)
-                    .with_writer(std::io::stdout)
-                    .with_ansi(is_log_color(&std::io::stdout())),
-            ) // thread debugging
-            // .with(tracing_forest::ForestLayer::default())
-            .try_init();
+        tracing_init(std::io::stdout, Some("debug"));
 
         // rust test framewrok uses threads, the main process may handle signals
         (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD + SIGINT).block();
