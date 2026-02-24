@@ -31,9 +31,12 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::{os::unix::process::CommandExt, time::Duration};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Registry, fmt};
 
 use crate::monitor::logger::Logger;
-use crate::utils::libc::waitpid;
+use crate::utils::libc::{getpid, waitpid};
 use crate::utils::signal::{self, SIGTERM, Signal, SignalSet};
 
 mod command;
@@ -176,6 +179,18 @@ impl Service {
             }
             0 => {
                 drop(iolocks);
+                /* configured susbcriber may have enabled log-capture in test mode,
+                 * this uses a Mutex that can't be manually locked.
+                 * replace it with a custom tracing subscriber.
+                 * child logs will not be captured, do use `cargo test -- --no-capture`
+                 * to see complete logs.
+                 */
+                let _guard = Registry::default()
+                    .with(EnvFilter::builder().from_env_lossy())
+                    .with(fmt::layer().with_writer(std::io::stderr))
+                    .set_default();
+                let _span = tracing::info_span!(parent: None, "child",  pid = getpid()).entered();
+
                 SignalSet::full()
                     .restore()
                     .expect("failed to restore default signal handlers");
@@ -198,6 +213,7 @@ impl Service {
                     Some(env) => cmd.envs(env),
                     None => cmd.env_clear(),
                 };
+                drop(_span);
                 let err = cmd.exec();
                 tracing::error!("failed to spawn process: {}", err);
                 std::process::exit(-1);
