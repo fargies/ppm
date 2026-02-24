@@ -99,7 +99,6 @@ where
                 .from_env_lossy(),
         )
         .with(fmt) // thread debugging
-        // .with(tracing_forest::ForestLayer::default())
         .try_init()?;
     Ok(())
 }
