@@ -41,7 +41,7 @@ features:
     icon: <i class="bi bi-arrow-repeat feature-logo text-4xl"></i>
     link: /log_rotate
 
-  - title: Comprehensive Server Messages
+  - title: Server Insights
     details: Clear, structured, and fully configurable server messages for better observability and debugging.
     icon: <i class="bi bi-chat-dots feature-logo text-4xl"></i>
     link: /server_traces

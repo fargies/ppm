@@ -1,9 +1,9 @@
-# Server Messages
+# Server Insights Messages
 
 PPM provides a clear, structured, and fully configurable server messaging system
 designed to help you monitor and diagnose server health and behavior with ease.
 
-Example log (using [data/test-logger-config.yml](https://github.com/fargies/ppm/blob/master/data/test-logger-config.yml)
+Example output (using the [data/test-logger-config.yml](https://github.com/fargies/ppm/blob/master/data/test-logger-config.yml)
 configuration file):
 
 ```bash
