@@ -175,6 +175,7 @@ impl Service {
         let iolocks = (std::io::stdout().lock(), std::io::stderr().lock());
         match unsafe { libc::fork() } {
             x if x < 0 => {
+                drop(iolocks);
                 tracing::error!("failed to fork");
             }
             0 => {
