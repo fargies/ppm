@@ -41,6 +41,11 @@ features:
     icon: <i class="bi bi-arrow-repeat feature-logo text-4xl"></i>
     link: /log_rotate
 
+  - title: Comprehensive Server Messages
+    details: Clear, structured, and fully configurable server messages for better observability and debugging.
+    icon: <i class="bi bi-chat-dots feature-logo text-4xl"></i>
+    link: /server_traces
+
   - title: Small Footprint
     details: Written in Rust with performance, efficiency, and minimal size in mind.
     icon: <i class="bi bi-arrows-angle-contract feature-logo text-4xl"></i>
