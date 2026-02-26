@@ -23,10 +23,11 @@
 
 #![allow(dead_code)]
 
-use std::os::fd::AsRawFd;
-
 use anyhow::Result;
 use libc::{c_int, pid_t};
+
+mod fcntl;
+pub use fcntl::{Fcntl, FdFlags};
 
 /// Set session-id
 ///
@@ -76,34 +77,5 @@ pub fn check(res: c_int) -> Result<()> {
         Err(err.into())
     } else {
         Ok(())
-    }
-}
-
-pub trait NonBlock {
-    fn set_nonblocking(&self) -> Result<()>;
-
-    fn set_blocking(&self) -> Result<()>;
-}
-
-impl<T> NonBlock for T
-where
-    T: AsRawFd,
-{
-    fn set_nonblocking(&self) -> Result<()> {
-        unsafe {
-            let mut flags = libc::fcntl(self.as_raw_fd(), libc::F_GETFL);
-            check(flags.min(0))?;
-            flags |= libc::O_NONBLOCK;
-            check(libc::fcntl(self.as_raw_fd(), libc::F_SETFL, flags))
-        }
-    }
-
-    fn set_blocking(&self) -> Result<()> {
-        unsafe {
-            let mut flags = libc::fcntl(self.as_raw_fd(), libc::F_GETFL);
-            check(flags.min(0))?;
-            flags &= !libc::O_NONBLOCK;
-            check(libc::fcntl(self.as_raw_fd(), libc::F_SETFL, flags))
-        }
     }
 }
