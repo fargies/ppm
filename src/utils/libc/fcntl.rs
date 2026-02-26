@@ -26,7 +26,7 @@ use super::check;
 use anyhow::Result;
 use libc::{
     O_ACCMODE, O_APPEND, O_CLOEXEC, O_CREAT, O_DIRECTORY, O_DSYNC, O_EXCL, O_NOCTTY, O_NOFOLLOW,
-    O_NONBLOCK, O_RDONLY, O_RDWR, O_RSYNC, O_SYNC, O_TRUNC, O_WRONLY, c_int,
+    O_NONBLOCK, O_RDONLY, O_RDWR, O_SYNC, O_TRUNC, O_WRONLY, c_int,
 };
 
 bitflags::bitflags! {
@@ -42,7 +42,6 @@ bitflags::bitflags! {
         const APPEND = O_APPEND; // Set append mode.
         const DSYNC = O_DSYNC; // Write according to synchronized I/O data integrity completion.
         const NONBLOCK = O_NONBLOCK; // Non-blocking mode.
-        const RSYNC = O_RSYNC; // Synchronized read I/O operations.
         const SYNC = O_SYNC; // Write according to synchronized I/O file integrity completion.
         const ACCMODE = O_ACCMODE; // Mask for file access modes.
         const RDONLY = O_RDONLY; // Open for reading only.
@@ -80,5 +79,33 @@ where
 
     fn set_flags(&self, flags: FdFlags) -> Result<()> {
         unsafe { check(libc::fcntl(self.as_raw_fd(), libc::F_SETFL, flags)) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::MkTemp;
+    use anyhow::Result;
+
+    #[test]
+    fn flags() -> Result<()> {
+        let temp = MkTemp::file("fcntl")?;
+
+        tracing::info!(flags = ?temp.as_raw_fd().get_flags()?);
+
+        temp.add_flag(FdFlags::RDWR)?;
+        tracing::info!(flags = ?temp.as_raw_fd().get_flags()?);
+        assert!(temp.get_flags()?.contains(FdFlags::RDWR));
+
+        temp.add_flag(FdFlags::NONBLOCK)?;
+        tracing::info!(flags = ?temp.as_raw_fd().get_flags()?);
+        assert!(temp.get_flags()?.contains(FdFlags::NONBLOCK));
+
+        temp.remove_flag(FdFlags::NONBLOCK)?;
+        tracing::info!(flags = ?temp.as_raw_fd().get_flags()?);
+        assert!(!temp.get_flags()?.contains(FdFlags::NONBLOCK));
+
+        Ok(())
     }
 }
