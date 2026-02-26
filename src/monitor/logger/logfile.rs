@@ -20,7 +20,10 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::{IntoArc, libc::NonBlock};
+use crate::utils::{
+    IntoArc,
+    libc::{Fcntl, FdFlags},
+};
 use anyhow::{Result, anyhow};
 use chrono::SecondsFormat;
 use regex::Regex;
@@ -148,7 +151,7 @@ impl LogFile {
                     .inspect_err(|err| tracing::error!(?err, ?file, "failed to reopen log-file"))
                     .inspect(|f| {
                         self.written = f.metadata().map(|m| m.len()).unwrap_or(0) as usize;
-                        if let Err(err) = f.set_nonblocking() {
+                        if let Err(err) = f.add_flag(FdFlags::NONBLOCK) {
                             tracing::error!(?err, "failed to set non-blocking");
                         }
                     })
@@ -186,7 +189,7 @@ impl LogFile {
                         );
 
                         self.written = 0;
-                        f.set_nonblocking().unwrap_or_else(|err| {
+                        f.add_flag(FdFlags::NONBLOCK).unwrap_or_else(|err| {
                             tracing::error!(?err, "failed to set non-blocking")
                         })
                     })

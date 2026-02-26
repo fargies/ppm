@@ -29,7 +29,10 @@ use std::{
 
 use crate::{
     monitor::logger::logfile::LogFile,
-    utils::{Buffer, libc::NonBlock},
+    utils::{
+        Buffer,
+        libc::{Fcntl, FdFlags},
+    },
 };
 
 pub struct LogPump {
@@ -140,9 +143,9 @@ impl LogPump {
 
     pub fn make_input(&mut self) -> Result<(Stdio, Stdio)> {
         let (reader_out, writer_out) = pipe().context("failed to create pipe")?;
-        reader_out.set_nonblocking()?;
+        reader_out.add_flag(FdFlags::NONBLOCK)?;
         let (reader_err, writer_err) = pipe().context("failed to create pipe")?;
-        reader_err.set_nonblocking()?;
+        reader_err.add_flag(FdFlags::NONBLOCK)?;
 
         tracing::trace!(
             fd_out = reader_out.as_raw_fd(),
