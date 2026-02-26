@@ -48,8 +48,8 @@ pub enum Action {
     /// Start the daemon
     #[command(skip)]
     List,
-    /// Dump info (aliases: list, ls)
-    #[clap(aliases = ["list", "ls"])]
+    /// Dump info (aliases: list, ls, status)
+    #[clap(aliases = ["list", "ls", "status"])]
     Info,
     /// Restart the given service (aliases: start)
     #[clap(alias = "start")]
