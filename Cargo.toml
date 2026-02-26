@@ -22,12 +22,16 @@ assets = [
 ]
 
 [[bin]]
+name = "ppm"
+path = "src/main.rs"
+
+[[bin]]
 name = "ppm-daemon"
 path = "src/daemon.rs"
 
 [[bin]]
-name = "ppm"
-path = "src/main.rs"
+name = "ppm-launcher"
+path = "src/launcher.rs"
 
 [dependencies]
 anyhow = "1.0.100"

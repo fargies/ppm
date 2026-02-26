@@ -341,7 +341,9 @@ mod tests {
         let temp_dir = MkTemp::dir("logger")?;
         let logger = Logger::new(temp_dir.as_ref());
 
-        let srv = Service::new("test", Command::new("echo", ["world"]));
+        let mut srv = Service::new("test", Command::new("echo", ["world"]));
+        /* silence ppm-launcher logs to see only sub-command bytes */
+        srv.command.env = Some(HashMap::from([("RUST_LOG".into(), "off".into())]));
 
         srv.restart(&logger);
         wait_for!(
@@ -352,7 +354,7 @@ mod tests {
         .expect("invalid log file count");
         wait_for!(
             logger.list_files(srv.id).first().unwrap().metadata()?.len() == 6,
-            std::time::Duration::from_secs(300),
+            std::time::Duration::from_secs(3),
             "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
         )
@@ -361,7 +363,7 @@ mod tests {
         srv.restart(&logger);
         wait_for!(
             logger.list_files(srv.id).first().unwrap().metadata()?.len() == 12,
-            std::time::Duration::from_secs(300),
+            std::time::Duration::from_secs(3),
             "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
         )
