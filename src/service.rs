@@ -25,19 +25,21 @@ use anyhow::{Result, anyhow};
 use croner::Cron;
 use libc::{WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WTERMSIG, c_int, pid_t};
 use serde::{Deserialize, Serialize};
-use std::process;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::time::Duration;
+use std::{
+    env::{current_dir, current_exe},
+    ops::Deref,
+    path::PathBuf,
+    process,
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
-use std::{os::unix::process::CommandExt, time::Duration};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Registry, fmt};
 
 use crate::monitor::logger::Logger;
-use crate::utils::libc::{getpid, waitpid};
-use crate::utils::signal::{self, SIGTERM, Signal, SignalSet};
+use crate::utils::libc::waitpid;
+use crate::utils::signal::{self, SIGTERM, Signal};
 
 mod command;
 pub use command::Command;
@@ -60,6 +62,37 @@ static S_ID: AtomicUsize = AtomicUsize::new(0);
 pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
+
+static LAUNCHER_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+    match current_exe()
+        .ok()
+        .and_then(|mut path| {
+            path.set_file_name("ppm-launcher");
+            if path.exists() { Some(path) } else { None }
+        })
+        .or_else(|| {
+            current_dir()
+                .ok()
+                .map(|path| path.join("target/debug/ppm-launcher"))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            current_dir()
+                .ok()
+                .map(|path| path.join("target/release/ppm-launcher"))
+                .filter(|p| p.exists())
+        }) {
+        ret @ Some(_) => ret,
+        None => {
+            tracing::error!("no launcher found");
+            #[cfg(test)]
+            tracing::error!(
+                "invoke `cargo build` to compile the ppm-launcher before running tests"
+            );
+            None
+        }
+    }
+});
 
 fn get_service_id_default() -> usize {
     SERVICE_ID_INVALID
@@ -161,6 +194,15 @@ impl Service {
         if self.info().pid.is_some() {
             self.stop();
         }
+
+        let launcher = match LAUNCHER_EXE.deref().as_ref() {
+            Some(launcher) => launcher,
+            None => {
+                tracing::error!("no launcher available");
+                return;
+            }
+        };
+
         // Lock the service info, may block clients for the time a service is
         // restarted but will prevent monitor from running waitpid
         // before we've set pid on this service
@@ -170,61 +212,26 @@ impl Service {
             .and_then(|l| l.make_pipe(self).ok())
             .unwrap_or_else(|| (process::Stdio::inherit(), process::Stdio::inherit()));
 
-        // tracing calls [Write::write_all] on its writer
-        // if locked when forking the child will deadlock
-        let iolocks = (std::io::stdout().lock(), std::io::stderr().lock());
-        match unsafe { libc::fork() } {
-            x if x < 0 => {
-                drop(iolocks);
-                tracing::error!("failed to fork");
-            }
-            0 => {
-                drop(iolocks);
-                /* configured susbcriber may have enabled log-capture in test mode,
-                 * this uses a Mutex that can't be manually locked.
-                 * replace it with a custom tracing subscriber.
-                 * child logs will not be captured, do use `cargo test -- --no-capture`
-                 * to see complete logs.
-                 */
-                let _guard = Registry::default()
-                    .with(EnvFilter::builder().from_env_lossy())
-                    .with(fmt::layer().with_writer(std::io::stderr))
-                    .set_default();
-                let _span = tracing::info_span!(parent: None, "child",  pid = getpid()).entered();
+        let mut cmd = process::Command::new(launcher);
+        cmd.arg(self.command.path.as_str())
+            .args(&self.command.args)
+            .stdin(process::Stdio::null())
+            .stdout(out)
+            .stderr(err);
+        if let Some(workdir) = self.workdir.as_ref() {
+            cmd.current_dir(workdir);
+        }
+        if let Some(env) = self.command.env.as_ref() {
+            cmd.envs(env);
+        }
 
-                SignalSet::full()
-                    .restore()
-                    .expect("failed to restore default signal handlers");
-
-                #[cfg(target_os = "linux")]
-                if let Err(err) = Signal::set_pdeath_sig(SIGTERM) {
-                    tracing::error!(?err, "failed to set pdeath signal");
-                }
-
-                let mut cmd = process::Command::new(self.command.path.as_str());
-                cmd.args(&self.command.args)
-                    .stdin(process::Stdio::null())
-                    .stdout(out)
-                    .stderr(err);
-                if let Some(workdir) = self.workdir.as_ref() {
-                    cmd.current_dir(workdir);
-                }
-
-                match self.command.env.as_ref() {
-                    Some(env) => cmd.envs(env),
-                    None => cmd.env_clear(),
-                };
-                drop(_span);
-                let err = cmd.exec();
-                tracing::error!("failed to spawn process: {}", err);
-                std::process::exit(-1);
-            }
-            pid => {
-                drop(iolocks);
+        match cmd.spawn() {
+            Ok(child) => {
                 let info = Arc::make_mut(&mut guard);
                 info.active = true;
-                info.set_running(pid);
+                info.set_running(child.id() as pid_t);
             }
+            Err(err) => tracing::error!(?err, "failed to spawn process"),
         }
     }
 
@@ -401,6 +408,7 @@ impl Drop for Service {
 mod tests {
     #[cfg(target_os = "linux")]
     use crate::utils::libc::waitpid;
+    use crate::utils::signal::SignalSet;
     #[cfg(target_os = "linux")]
     use std::{
         fs::File,
