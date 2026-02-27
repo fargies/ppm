@@ -10,6 +10,9 @@ hero:
       text: Quick Start
       link: /quick_start/installation
     - theme: alt
+      text: Documentation
+      link: /doc/resource_usage
+    - theme: alt
       text: GitHub
       link: https://github.com/fargies/ppm
   image:
@@ -24,27 +27,27 @@ features:
   - title: Resource Monitoring
     details: Built-in reporting for process-level resource consumption.
     icon: <i class="bi bi-activity feature-logo text-4xl"></i>
-    link: /resource_usage
+    link: /doc/resource_usage
 
   - title: Service Scheduling
     details: Integrated cron-like scheduler for automated task execution.
     icon: <i class="bi bi-stopwatch feature-logo text-4xl"></i>
-    link: /scheduling
+    link: /doc/scheduling
 
   - title: File Monitoring
     details: Automatically restarts services when files change in watched directories.
     icon: <i class="bi bi-binoculars feature-logo text-4xl"></i>
-    link: /file_monitoring
+    link: /doc/file_monitoring
 
   - title: Log File Rotation
     details: Automatically saves, rotates, and manages logs per service, keeping recent logs and limiting disk usage.
     icon: <i class="bi bi-arrow-repeat feature-logo text-4xl"></i>
-    link: /log_rotate
+    link: /doc/log_rotate
 
   - title: Server Insights
     details: Clear, structured, and fully configurable server messages for better observability and debugging.
     icon: <i class="bi bi-chat-dots feature-logo text-4xl"></i>
-    link: /server_traces
+    link: /doc/server_traces
 
   - title: Small Footprint
     details: Written in Rust with performance, efficiency, and minimal size in mind.

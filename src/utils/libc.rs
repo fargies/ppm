@@ -34,12 +34,7 @@ pub use fcntl::{Fcntl, FdFlags};
 /// Returns the new session-id
 pub fn setsid() -> Result<pid_t> {
     let ret = unsafe { libc::setsid() };
-
-    if ret < 0 {
-        Err(std::io::Error::last_os_error().into())
-    } else {
-        Ok(ret)
-    }
+    check(ret.min(0)).and(Ok(ret))
 }
 
 #[cfg(target_os = "linux")]
@@ -53,6 +48,10 @@ pub fn gettid() -> libc::pthread_t {
 
 pub fn getpid() -> pid_t {
     unsafe { libc::getpid() }
+}
+
+pub fn getpgid(pid: pid_t) -> pid_t {
+    unsafe { libc::getpgid(pid) }
 }
 
 /// Invoke waitpid in non-blocking mode

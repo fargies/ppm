@@ -1,5 +1,7 @@
 # Service Resource Usage
 
+## Description
+
 The following statistics are monitored for each service:
 
 - `CPU` -- CPU usage as a percentage (`%`).\
@@ -20,8 +22,14 @@ running do not report statistics, but they are still displayed in the list.
 An additional entry named `<PPM daemon>` is also shown. It reports the resource
 usage of the _PPM_ daemon process itself.
 
+## Usage
+
 To retrieve these statistics, use the following command:
 
 ```bash
 ppm stats
 ```
+
+## Example
+
+![./img/stats.gif](./img/stats.gif)

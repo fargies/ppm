@@ -22,7 +22,7 @@
     "request": "launch",
     "program": "target/debug/ppm-daemon",
     "env": {
-      "RUST_lOG": "trace",
+      "RUST_LOG": "trace",
       "PPM_CONFIG": "data/test-watcher-config.yml",
     },
   },

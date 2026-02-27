@@ -270,7 +270,7 @@ impl Service {
     ///
     /// This will not update the service `info`, the `Monitor` thread should
     /// do using `waitpid`
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret)]
     fn terminate(&self, pid: pid_t, signal: Signal, timeout: &Duration) -> bool {
         if Signal::kill(pid, signal).is_err() {
             // already dead
@@ -291,6 +291,7 @@ impl Service {
         true
     }
 
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret(level = "TRACE"))]
     pub fn set_terminated(&self, pid: pid_t, status: c_int) -> Status {
         let mut guard = self._info.lock().unwrap();
         if guard.pid.is_none_or(|p| p != pid) {
@@ -337,7 +338,7 @@ impl Service {
     /// Set service as [Status::Crashed]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_crashed(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_crashed();
@@ -346,7 +347,7 @@ impl Service {
     /// Set service as [Status::Finished]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_finished(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_finished();
@@ -355,7 +356,7 @@ impl Service {
     /// Set service as [Status::Stopped]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_stopped(&self) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_stopped();
@@ -364,7 +365,7 @@ impl Service {
     /// Set service as [Status::Running]
     ///
     /// Must be called from [Monitor]
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_running(&self, pid: pid_t) {
         let mut guard = self._info.lock().unwrap();
         Arc::make_mut(&mut guard).set_running(pid);

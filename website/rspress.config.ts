@@ -1,5 +1,8 @@
+import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { defineConfig } from "rspress/config";
+
+const gitHash = execSync("git describe --tags HEAD").toString().trim();
 
 export default defineConfig({
   root: path.join(__dirname, "docs"),
@@ -11,6 +14,8 @@ export default defineConfig({
     dark: "/logo.svg",
   },
   themeConfig: {
+    enableContentAnimation: true,
+    enableAppearanceAnimation: true,
     socialLinks: [
       {
         icon: "github",
@@ -18,6 +23,9 @@ export default defineConfig({
         content: "https://github.com/fargies/ppm",
       },
     ],
+    footer: {
+      message: `<a class="x-link" href="https://github.com/fargies/ppm">ppm @ ${gitHash}</a> by <a class="x-link" href="https://github.com/fargies">Sylvain Fariger</a>`,
+    },
   },
   globalStyles: path.join(__dirname, "docs/index.css"),
   builderConfig: {

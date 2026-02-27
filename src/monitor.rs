@@ -34,9 +34,8 @@ use crate::{
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
-        libc::{getpid, gettid, setsid, waitpid},
-        serializers::human,
-        serializers::instant::check_ref_time,
+        libc::{getpgid, getpid, gettid, setsid, waitpid},
+        serializers::{human, instant::check_ref_time},
         signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
     },
 };
@@ -114,7 +113,10 @@ impl Monitor {
         // block signal before spawning threads to apply mask to all threads
         (SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGINT).block()?;
 
-        if let Err(err) = setsid() {
+        let pid = getpid();
+        if pid != getpgid(pid)
+            && let Err(err) = setsid()
+        {
             tracing::error!(?err, "setsid failed");
         }
         #[cfg(target_os = "linux")]
@@ -126,7 +128,6 @@ impl Monitor {
         Ok(())
     }
 
-    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     pub fn on_sigchld(&self) -> usize {
         self.waitpid(-1)
     }
@@ -204,6 +205,7 @@ impl Monitor {
     }
 
     pub fn run(self: &Arc<Self>) -> Result<()> {
+        let _span = tracing::info_span!(parent: None, "monitor").entered();
         *self.tid.lock().unwrap() = Some(gettid());
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
@@ -228,6 +230,7 @@ impl Monitor {
         self.scheduler.init(self);
         let mut timer = Timer::new(Duration::from_millis(1), false);
         timer.start()?;
+        drop(_span);
 
         loop {
             let _span = tracing::info_span!(parent: None, "monitor").entered();

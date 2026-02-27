@@ -74,3 +74,10 @@ ppm log my_service -n 200
 # (properly handles log rotation)
 ppm log my_service -n 200 -f
 ```
+
+## Example
+
+Here's an example on how to use the logger, using a service that writes current
+date every second:
+
+![./img/log.gif](./img/log.gif)

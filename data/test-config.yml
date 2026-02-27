@@ -36,3 +36,5 @@ services:
       path: echo
       args: [world]
     schedule: "*/15 * * * * *"
+logger:
+  path: /tmp/ppm

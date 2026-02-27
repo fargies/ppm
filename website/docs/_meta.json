@@ -5,6 +5,11 @@
     "activeMatch": "/quick_start/"
   },
   {
+    "text": "Documentation",
+    "link": "/doc/resource_usage",
+    "activeMatch": "/doc/"
+  },
+  {
     "text": "About",
     "link": "/about",
     "activeMatch": "/about/"
