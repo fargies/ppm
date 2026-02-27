@@ -70,3 +70,12 @@ i.bi.feature-logo {
 .rspress-logo {
     height: 2.5rem;
 }
+
+a.x-link:link,
+a.x-link:visited {
+    color: var(--rp-c-text-1);
+}
+
+a.x-link:hover {
+    color: var(--rp-c-link);
+}

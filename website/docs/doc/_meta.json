@@ -1,0 +1,7 @@
+[
+  "resource_usage",
+  "scheduling",
+  "file_monitoring",
+  "log_rotate",
+  "server_traces"
+]

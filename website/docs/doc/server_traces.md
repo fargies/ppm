@@ -3,8 +3,10 @@
 PPM provides a clear, structured, and fully configurable server messaging system
 designed to help you monitor and diagnose server health and behavior with ease.
 
-Example output (using the [data/test-logger-config.yml](https://github.com/fargies/ppm/blob/master/data/test-logger-config.yml)
-configuration file):
+## Example output
+
+Using the [data/test-logger-config.yml](https://github.com/fargies/ppm/blob/master/data/test-logger-config.yml)
+configuration file:
 
 ```bash
 INFO starting daemon
@@ -24,7 +26,7 @@ INFO monitor: Running -> Finished
 
 ## Message Configuration
 
-PPM’s log output can be customized using the following environment variables:
+PPM’s log output can be customized using the following **environment variables**:
 
 - `RUST_LOG=debug`  
   Sets the log level (`trace`, `debug`, `info`, `warn`, `error`).
@@ -40,3 +42,23 @@ PPM’s log output can be customized using the following environment variables:
 
 - `LOG_COLOR=auto`  
   Enables or disables colored log output (`auto`, `yes`, `no`).
+
+## Example
+
+Using [data/test-config.yml](https://github.com/fargies/ppm/blob/master/data/test-config.yml)
+, here's an example daemon trace:
+
+![./img/traces.gif](./img/traces.gif)
+
+While the output may appear dense at first glance, it is intentionally precise.
+Each message provides actionable insight into what the scheduler, monitor, and
+process manager are doing at any given moment.
+
+Once familiar with the structure, you can quickly identify:
+
+- Why a service restarted
+- When a reschedule occurred
+- Which process exited and how
+- The exact transition path of each service
+
+**Note:** Log traces may evolve between PPM versions as observability improves.

@@ -53,3 +53,9 @@ ppm show-scheduler
 This command displays the currently registered schedules and their next planned
 execution times, which can be useful for troubleshooting scheduling issues or
 verifying cron expressions.
+
+## Example
+
+Here's an example on how to create a scheduled service, calling `date` every second:
+
+![./img/log.gif](./img/log.gif)
