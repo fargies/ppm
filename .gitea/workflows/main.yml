@@ -115,6 +115,9 @@ jobs:
     steps:
       - name: Fetch sources
         uses: https://gitea.com/actions/checkout@v5
+        with:
+          fetch-tags: true
+          fetch-depth: 0
       - name: Build website
         working-directory: website
         run: npm install && npm run build
