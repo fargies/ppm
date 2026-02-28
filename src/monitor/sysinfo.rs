@@ -180,10 +180,7 @@ impl Sysinfo {
 mod tests {
     use crate::{
         service::{Command, Status},
-        utils::{
-            libc::getpid,
-            signal::{self, Signal},
-        },
+        utils::kill_on_drop,
     };
     use anyhow::Result;
     use serial_test::serial;
@@ -205,6 +202,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = kill_on_drop(join_handle);
 
         let mut sysinfo = Sysinfo::default();
         sysinfo.update(&mon);
@@ -221,8 +219,6 @@ mod tests {
             assert_eq!(Status::Finished, service.info().status);
         }
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 }
