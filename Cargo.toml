@@ -3,7 +3,7 @@
 name = "partner-pm"
 description = "Partner Process Monitor"
 authors = ["Sylvain Fargier <fargier.sylvain@gmail.com>"]
-license = "zlib"
+license = "Zlib"
 license-file = "COPYING"
 readme = "README.md"
 homepage = "https://www.gremory.org/gitea/fargie_s/ppm"
