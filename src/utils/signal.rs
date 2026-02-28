@@ -52,6 +52,8 @@ pub const SIGCHLD: Signal = Signal(libc::SIGCHLD);
 pub const SIGTERM: Signal = Signal(libc::SIGTERM);
 #[allow(dead_code)]
 pub const SIGSTOP: Signal = Signal(libc::SIGSTOP);
+#[allow(dead_code)]
+pub const SIGCONT: Signal = Signal(libc::SIGCONT);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
 pub const SIGINT: Signal = Signal(libc::SIGINT);
 pub const SIGHUP: Signal = Signal(libc::SIGHUP);
@@ -123,6 +125,7 @@ impl Debug for Signal {
             libc::SIGCHLD => f.write_str("SIGCHLD"),
             libc::SIGTERM => f.write_str("SIGTERM"),
             libc::SIGSTOP => f.write_str("SIGSTOP"),
+            libc::SIGCONT => f.write_str("SIGCONT"),
             libc::SIGKILL => f.write_str("SIGKILL"),
             libc::SIGINT => f.write_str("SIGINT"),
             sig => write!(f, "SIG({})", sig),

@@ -442,7 +442,7 @@ mod tests {
         service::{Command, Status},
         utils::{
             kill_on_drop,
-            signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
+            signal::{SIGALRM, SIGCHLD, SIGCONT, SIGKILL, SIGSTOP, SIGTERM, Signal, SignalSet},
             tracing_utils::tracing_init,
             wait_for,
         },
@@ -575,7 +575,7 @@ mod tests {
         let info = service.info();
         assert_ne!(None, info.pid);
 
-        Signal::kill(info.pid.unwrap(), Signal(libc::SIGSTOP))?;
+        Signal::kill(info.pid.unwrap(), SIGSTOP)?;
         wait_for!(
             service.info().status == Status::Stopped,
             "status={:?}",
@@ -583,7 +583,7 @@ mod tests {
         )
         .expect("not stopped");
 
-        Signal::kill(info.pid.unwrap(), Signal(libc::SIGCONT))?;
+        Signal::kill(info.pid.unwrap(), SIGCONT)?;
 
         wait_for!(
             service.info().status == Status::Running,
