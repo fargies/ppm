@@ -31,6 +31,6 @@ jobs:
       - name: Build project
         run: cargo build
       - name: Run tests
-        run: cargo test -- --no-capture
+        run: cargo test
       - name: Run clippy
         run: cargo clippy -- -D warnings
