@@ -112,15 +112,21 @@ impl Sysinfo {
                 .pid
                 .and_then(|p| self.system.process(Pid::from(p as usize)))
             {
-                tracing::trace!(id = srv.id, name = srv.name, "updating");
-                match proc.status() {
-                    sysinfo::ProcessStatus::Idle => srv.set_running(info.pid.unwrap()),
-                    sysinfo::ProcessStatus::Run => srv.set_running(info.pid.unwrap()),
-                    sysinfo::ProcessStatus::Sleep => srv.set_running(info.pid.unwrap()),
-                    sysinfo::ProcessStatus::Stop => srv.set_stopped(),
-                    sysinfo::ProcessStatus::Zombie => (/* [Monitor] will handle this */),
-                    sysinfo::ProcessStatus::Dead => (/* [Monitor] will handle this */),
-                    _ => {}
+                /* on Mac `proc_pidinfo` seems to return an error for some time
+                 * before actually detecting the process, side-effects are a zero
+                 * run-time: do not update state until we can trust the returned
+                 * value
+                 */
+                if proc.run_time() != 0 {
+                    match proc.status() {
+                        sysinfo::ProcessStatus::Idle => srv.set_running(info.pid.unwrap()),
+                        sysinfo::ProcessStatus::Run => srv.set_running(info.pid.unwrap()),
+                        sysinfo::ProcessStatus::Sleep => srv.set_running(info.pid.unwrap()),
+                        sysinfo::ProcessStatus::Stop => srv.set_stopped(),
+                        sysinfo::ProcessStatus::Zombie => (/* [Monitor] will handle this */),
+                        sysinfo::ProcessStatus::Dead => (/* [Monitor] will handle this */),
+                        _ => {}
+                    }
                 }
 
                 srv.update_stats(self.make_stats(
@@ -180,7 +186,11 @@ impl Sysinfo {
 mod tests {
     use crate::{
         service::{Command, Status},
-        utils::kill_on_drop,
+        utils::{
+            kill_on_drop,
+            signal::{SIGCONT, SIGSTOP, Signal},
+            wait_for,
+        },
     };
     use anyhow::Result;
     use serial_test::serial;
@@ -218,6 +228,47 @@ mod tests {
         for service in &mon.services {
             assert_eq!(Status::Finished, service.info().status);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn update_status() -> Result<()> {
+        let mon = Arc::new(Monitor {
+            /* disable auto-stats by setting a large value */
+            stats_interval: std::time::Duration::from_secs(30),
+            ..Default::default()
+        });
+        let service = mon.insert(Service::new("test_stopped", Command::new("sleep", ["300"])));
+
+        let join_handle = {
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+        let _drop_guard = kill_on_drop(join_handle);
+
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        let info = service.info();
+        assert_ne!(None, info.pid);
+
+        /* manually invoke before calling STOP */
+        mon.sysinfo.lock().unwrap().update(&mon);
+        Signal::kill(info.pid.unwrap(), SIGSTOP)?;
+        wait_for!(
+            service.info().status == Status::Stopped,
+            "status={:?}",
+            service.info().status
+        )
+        .expect("not stopped");
+
+        /* it seems that just after process launch on MacOs [sysinfo]
+         * `proc_pidinfo` call fails displaying process as `Running` when
+         * it may not really be. */
+        mon.sysinfo.lock().unwrap().update(&mon);
+        assert_eq!(service.info().status, Status::Stopped);
+
+        Signal::kill(info.pid.unwrap(), SIGCONT)?;
 
         Ok(())
     }
