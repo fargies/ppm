@@ -60,12 +60,7 @@ mod tests {
 
     use crate::{
         service::{Command, Service},
-        utils::{
-            MkTemp,
-            libc::getpid,
-            signal::{self, Signal},
-            wait_for,
-        },
+        utils::{MkTemp, kill_on_drop, wait_for},
     };
     use serde_yaml_ng as yaml;
     use serial_test::serial;
@@ -94,6 +89,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
@@ -108,8 +104,6 @@ mod tests {
         )
         .expect("failed to detect file creation");
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 
@@ -138,6 +132,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
@@ -163,8 +158,6 @@ mod tests {
         .expect("failed to detect file change");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 
@@ -211,6 +204,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
+        let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
@@ -250,8 +244,6 @@ mod tests {
         wait_for!(service.info().restarts == 5).expect("failed to detect file change");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
-        Signal::kill(getpid(), signal::SIGTERM)?;
-        join_handle.join().unwrap()?;
         Ok(())
     }
 }

@@ -419,8 +419,7 @@ mod tests {
     use crate::{
         monitor::Monitor,
         utils::{
-            OnDrop,
-            libc::getpid,
+            kill_on_drop,
             signal::{SIGALRM, SIGCHLD, SIGTERM},
             wait_for,
         },
@@ -462,11 +461,6 @@ mod tests {
         Ok(())
     }
 
-    fn kill_monitor(join_handle: std::thread::JoinHandle<Result<()>>) {
-        Signal::kill(getpid(), SIGTERM).unwrap();
-        join_handle.join().unwrap().unwrap();
-    }
-
     #[test]
     #[serial(waitpid)]
     fn stop() -> Result<()> {
@@ -481,7 +475,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        let _drop_guard = kill_on_drop(join_handle);
 
         assert!(service.info().pid.is_some_and(|pid| pid > 0));
         assert_eq!(service.info().status, Status::Running);
@@ -522,7 +516,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        let _drop_guard = kill_on_drop(join_handle);
 
         wait_for!(service.info().pid.is_some()).expect("not started");
         let pid = service.info().pid.unwrap();

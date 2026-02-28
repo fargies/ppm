@@ -441,7 +441,7 @@ mod tests {
     use crate::{
         service::{Command, Status},
         utils::{
-            OnDrop,
+            kill_on_drop,
             signal::{SIGALRM, SIGCHLD, SIGKILL, SIGTERM, Signal, SignalSet},
             tracing_utils::tracing_init,
             wait_for,
@@ -501,11 +501,6 @@ mod tests {
         sigset.restore()
     }
 
-    fn kill_monitor(join_handle: std::thread::JoinHandle<Result<()>>) {
-        Signal::kill(getpid(), SIGTERM).unwrap();
-        join_handle.join().unwrap().unwrap();
-    }
-
     #[test]
     #[serial(waitpid)]
     /// ensure that signals are unblocked for the child process
@@ -520,7 +515,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        let _drop_guard = kill_on_drop(join_handle);
         wait_for!(
             service.info().restarts == 1,
             "restarts:{}",
@@ -555,7 +550,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().restarts > 1).expect("not restarted");
 
         Ok(())
@@ -574,7 +569,7 @@ mod tests {
             let mon = Arc::clone(&mon);
             std::thread::spawn(move || mon.run())
         };
-        let _drop_guard = OnDrop::new(|| kill_monitor(join_handle));
+        let _drop_guard = kill_on_drop(join_handle);
 
         wait_for!(service.info().pid.is_some()).expect("not started");
         let info = service.info();
