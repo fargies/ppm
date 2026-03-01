@@ -9,9 +9,12 @@ containers.
 It aims to be **low-overhead** and **low-footprint**, with ease of use as a core
 principle, while still offering optional advanced features such as:
 
-- [Resource Usage Reporting](website/docs/resource_usage.md)
-- [File Change Monitoring](website/docs/file_monitoring.md)
-- [Cron-like Scheduling](website/docs/scheduling.md)
+- [Resource Usage Reporting](website/docs/doc/resource_usage.md)
+- [File Change Monitoring](website/docs/doc/file_monitoring.md)
+- [Cron-like Scheduling](website/docs/doc/scheduling.md)
+- [Log File Rotation](website/docs/doc/log_rotate.md)
+
+Complete documentation is available here: [https://github.gremory.org/ppm](https://github.gremory.org/ppm)
 
 ## Why “PPM”?
 
@@ -26,11 +29,3 @@ which is written in [Node.js](https://nodejs.org), as well as alternatives like
 As a result, I decided to build a
 **minimalist yet feature-rich process monitoring tool**
 in [Rust](https://www.rust-lang.org).
-
-## Documentation
-
-Complete documentation is available here: [https://www.gremory.org/ppm](https://www.gremory.org/ppm)
-
-## Development
-
-For additional informations on development please see [DEV](./DEV.md).
