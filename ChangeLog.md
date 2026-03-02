@@ -19,6 +19,7 @@
 - Add cliff in CI
 - Minor fix in release script
 - Release partner-pm version 1.4.3
+- Release partner-pm version 1.4.3
 ## [1.4.2] - 2026-02-28
 
 ### 🚀 Features
