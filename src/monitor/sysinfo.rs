@@ -113,11 +113,10 @@ impl Sysinfo {
                 .and_then(|p| self.system.process(Pid::from(p as usize)))
             {
                 /* on Mac `proc_pidinfo` seems to return an error for some time
-                 * before actually detecting the process, side-effects are a zero
-                 * run-time: do not update state until we can trust the returned
-                 * value
+                 * before actually detecting the process, the sysinfo library will
+                 * always return `Run` in such cases, making it not so reliable
                  */
-                if proc.run_time() != 0 {
+                if cfg!(not(target_os = "macos")) || proc.run_time() >= 5 {
                     match proc.status() {
                         sysinfo::ProcessStatus::Idle => srv.set_running(info.pid.unwrap()),
                         sysinfo::ProcessStatus::Run => srv.set_running(info.pid.unwrap()),
