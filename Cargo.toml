@@ -6,9 +6,13 @@ authors = ["Sylvain Fargier <fargier.sylvain@gmail.com>"]
 license = "Zlib"
 license-file = "COPYING"
 readme = "README.md"
-homepage = "https://www.gremory.org/gitea/fargie_s/ppm"
+homepage = "https://github.gremory.org/ppm"
+repository = "https://github.com/fargies/ppm"
 version = "1.4.2"
 edition = "2024"
+default-run = "ppm"
+keywords = ["process", "manager", "pm2", "monitoring", "supervisor"]
+categories = ["command-line-utilities", "development-tools", "virtualization"]
 
 [package.metadata.deb]
 section = "Utilities"
