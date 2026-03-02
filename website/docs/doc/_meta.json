@@ -3,5 +3,6 @@
   "scheduling",
   "file_monitoring",
   "log_rotate",
-  "server_traces"
+  "server_traces",
+  "changelog"
 ]
