@@ -1,16 +1,23 @@
-## [unreleased]
+## [1.4.3] - 2026-03-02
 
 ### 🚀 Features
 
 - Rework main README a bit
 
+### 🐛 Bug Fixes
+
+- Fix sysinfo process status on macos
+
 ### 📚 Documentation
 
 - Update metadata and add ChangeLog
+- Add changelog in website
 
 ### ⚙️ Miscellaneous Tasks
 
 - Configure git-cliff
+- Add cliff in CI
+- Minor fix in release script
 ## [1.4.2] - 2026-02-28
 
 ### 🚀 Features
