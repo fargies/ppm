@@ -34,3 +34,19 @@ jobs:
         run: cargo test
       - name: Run clippy
         run: cargo clippy -- -D warnings
+
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+      - name: Generate ChangeLog
+        uses: docker://alpine:latest
+        env:
+          RUST_LOG: warn
+        with:
+          args: |
+            /bin/sh -c "printf '[safe]\ndirectory = *\n' > /etc/gitconfig && apk add git-cliff && git-cliff -u && echo Ok"

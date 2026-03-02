@@ -90,6 +90,22 @@ jobs:
         with:
           token: ${{ secrets.PACKAGE_RELEASE_TOKEN }}
 
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare container
+        uses: https://gitea.com/actions/checkout@v5
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+      - name: Generate ChangeLog
+        uses: docker://alpine:latest
+        env:
+          RUST_LOG: warn
+        with:
+          args: |
+            /bin/sh -c "printf '[safe]\ndirectory = *\n' > /etc/gitconfig && apk add git-cliff && git-cliff -u && echo Ok"
+
   release:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
