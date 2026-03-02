@@ -3,6 +3,14 @@
 ### 🚀 Features
 
 - Rework main README a bit
+
+### 📚 Documentation
+
+- Update metadata and add ChangeLog
+
+### ⚙️ Miscellaneous Tasks
+
+- Configure git-cliff
 ## [1.4.2] - 2026-02-28
 
 ### 🚀 Features
@@ -21,7 +29,7 @@
 - Release partner-pm version 1.4.2
 ## [1.4.1] - 2026-02-27
 
-### 💼 Other
+### ⚙️ Miscellaneous Tasks
 
 - Bump Cargo.toml
 ## [1.4.0] - 2026-02-27
@@ -36,11 +44,13 @@
 - Test ghpages
 - Adding github ci basic tests
 - Add some deps for CI
+- Wip log client
 - Add client-side tail support
 - Update docs
 - Add macos build
 - Add some work-arrounds for FSEvents
 - Add some logging in CI
+- Adding some traces
 - Add `wait_for` test helper
 - Use `wait_for!` instead of sleeping
 - Better tests cleanup
@@ -64,9 +74,6 @@
 - Fix github workflow
 - Fix gitea ci
 - Fix logger test issue
-
-- add small delays after waiting for process to let the logger write the
-file
 - Fix fsevents build
 - Fix std::io lock race
 - Fix FSEvents build
@@ -74,16 +81,20 @@ file
 - Server may not send shutdown if client is already gone
 - Fix gh-pages build
 
-### 💼 Other
+### 📚 Documentation
+
+- Updating doc
+- Update cast CSS
+
+### 🧪 Testing
+
+- Enhance tests a bit
+
+### ⚙️ Miscellaneous Tasks
 
 - Add some traces in CI
-- Updating doc
-- Wip log client
-- Adding some traces
 - Disabling log colors
-- Enhance tests a bit
 - Update todo list
-- Update cast CSS
 ## [1.3.0] - 2026-01-30
 
 ### 🚀 Features
@@ -103,7 +114,7 @@ file
 - Rework a bit the restart mechanism
 - Fix sample config
 
-### 💼 Other
+### ⚙️ Miscellaneous Tasks
 
 - Version bump
 ## [1.2.0] - 2026-01-24
@@ -122,13 +133,12 @@ file
 ### 🐛 Bug Fixes
 
 - Scheduler fixes
-- Fix object rename
+- Minor change
+- Object rename
 
-### 💼 Other
+### 📚 Documentation
 
 - Add logo in docs
-- Minor change
-- :package: bump version v1.2.0
 
 ### 🎨 Styling
 
@@ -136,13 +146,17 @@ file
 - Lint tests
 - Lint a bit
 - Lint a bit
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version v1.2.0
 ## [1.1.1] - 2026-01-14
 
 ### 🚀 Features
 
 - Add icons, rework bundling on debian
 
-### 💼 Other
+### ⚙️ Miscellaneous Tasks
 
 - Add jq dependency
 - Bump
@@ -159,20 +173,30 @@ file
 
 ### 🐛 Bug Fixes
 
-- Fix tests
+- Minor changes
 
-### 💼 Other
+### 📚 Documentation
 
 - Update doc
-- Minor changes
+
+### 🧪 Testing
+
+- Fix tests
+
+### ⚙️ Miscellaneous Tasks
+
 - Bump version
 ## [1.0.0] - 2026-01-08
 
 ### 🚀 Features
 
+- Linux support
+- MacOS support
+- Linux support
 - Working no tabled
 - Work on cmdline
 - Adding some commands
+- Working on stats and commands
 - Add daemon stats, tune malloc options
 - Adding CI
 - Fix clippy errors
@@ -180,21 +204,20 @@ file
 - Ignore .vscode
 - Rename package
 
-### 🐛 Bug Fixes
+### 🚜 Refactor
+
+- Wip
+
+### 📚 Documentation
+
+- Update readme
+
+### 🧪 Testing
 
 - Fix tests
 
-### 💼 Other
+### ⚙️ Miscellaneous Tasks
 
 - First import
-- Wip
-- Linux support
-- MacOS support
-- Linux support
-- Working on stats and commands
 - Remove useless files
-- Merge pull request 'wip-ci' (#1) from wip-ci into master
-
-Reviewed-on: https://gitea:3000/gitea/fargie_s/ppm/pulls/1
-- :package: add packaging in CI
-- Update readme
+- Add packaging in CI

@@ -25,6 +25,9 @@ assets = [
     ["data/ppm.svg", "usr/share/icons/hicolor/scalable/apps/ppm.svg", "644"]
 ]
 
+[package.metadata.release]
+pre-release-hook = ["git", "cliff", "-o", "CHANGELOG.md", "--tag", "{{version}}" ]
+
 [[bin]]
 name = "ppm"
 path = "src/main.rs"
