@@ -218,7 +218,8 @@ impl Server {
             Action::Stop { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
-                service.stop();
+
+                monitor.stop(&service);
                 serde_json::to_writer(stream, &ActionResult::Ok(()))?;
             }
             Action::ShowConfiguration => {

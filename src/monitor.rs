@@ -217,17 +217,11 @@ impl Monitor {
             sigset.restore().unwrap();
         });
 
-        for srv in self.services.iter() {
-            let info = srv.info();
-
-            if info.status != Status::Running && info.active {
-                srv.restart(self.logger.as_ref());
-            }
-            self.add_watch(srv.as_ref())
-                .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
+        self.scheduler.init(self);
+        for srv in self.services.iter().filter(|srv| srv.info().active) {
+            self.inject(&srv);
         }
 
-        self.scheduler.init(self);
         let mut timer = Timer::new(Duration::from_millis(1), false);
         timer.start()?;
         drop(_span);
@@ -300,8 +294,19 @@ impl Monitor {
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
 
+        if service.info().active && self.inject(&service) {
+            self.wake();
+        }
+
+        service
+    }
+
+    /// Inject service in the scheduler
+    ///
+    /// Returns true if scheduler notifies that main thread should be awaken
+    fn inject(self: &Arc<Self>, service: &Arc<Service>) -> bool {
         let (watch, wake) = if service.schedule.is_some() {
-            (true, self.scheduler.reschedule(&service, None))
+            (true, self.scheduler.reschedule(service, None))
         } else if service.info().status != Status::Running {
             (
                 false,
@@ -313,15 +318,12 @@ impl Monitor {
         } else {
             (true, false)
         };
-        if wake {
-            self.wake();
-        }
 
-        if watch && self.is_running() {
-            self.add_watch(&service)
+        if watch {
+            self.add_watch(service)
                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
         }
-        service
+        wake
     }
 
     /// Schedule a service restart
@@ -330,7 +332,7 @@ impl Monitor {
     ///   subreapers.
     /// - Scheduled service will still be executed (in addition to being rescheduled).
     ///   use [reschedule] to activate but not run.
-    pub fn restart(self: &Arc<Self>, service: &Service) {
+    pub fn restart(&self, service: &Service) {
         service.set_active(true);
         let mut wake = self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
             id: service.id,
@@ -344,10 +346,19 @@ impl Monitor {
         }
     }
 
+    /// Stop and deactivate a service
+    pub fn stop(&self, service: &Service) {
+        service.set_active(false);
+        self.remove_watch(&service.id);
+        /* don't wake, worst case there'll be a spurious wakeup */
+        self.scheduler.remove(&service.id);
+        service.stop();
+    }
+
     /// Reschedule a service
     ///
     /// Reactivates and schedules a scheduled service
-    pub fn reschedule(self: &Arc<Self>, service: &Service) {
+    pub fn reschedule(&self, service: &Service) {
         service.set_active(true);
         if service.schedule.is_some() && self.scheduler.reschedule(service, None) {
             self.wake();
@@ -436,6 +447,8 @@ extern "C" fn guard_sighandler(sig: libc::c_int) {
 
 #[cfg(test)]
 mod tests {
+    use std::{str::FromStr, time::Instant};
+
     use super::*;
 
     use crate::{
@@ -558,6 +571,26 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
+    fn manual_restart() -> Result<()> {
+        let mon = Monitor::new();
+        let service = mon.insert(Service::new("test_restart", Command::new("sleep", ["300"])));
+
+        let join_handle = {
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+        let _drop_guard = kill_on_drop(join_handle);
+        wait_for!(service.info().pid.is_some()).expect("not started");
+
+        mon.restart(&service);
+        wait_for!(service.info().restarts == 2).expect("not started");
+        mon.stop(&service);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
     fn stopped() -> Result<()> {
         let mon = Arc::new(Monitor {
             stats_interval: std::time::Duration::from_millis(250),
@@ -592,6 +625,30 @@ mod tests {
         )
         .expect("not running");
 
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn scheduled() -> Result<()> {
+        use croner::Cron;
+        let mon = Monitor::new();
+        let mut service = Service::new("test_stopped", Command::new("sleep", ["300"]));
+        service.schedule = Some(Cron::from_str("* * * * * *")?);
+        let service = mon.insert(service);
+        let now = Instant::now();
+
+        let join_handle = {
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+        let _drop_guard = kill_on_drop(join_handle);
+
+        wait_for!(service.info().restarts >= 3).expect("not scheduled");
+        assert!(now.elapsed() >= Duration::from_secs(2));
+
+        mon.stop(&service);
+        wait_for!(service.info().pid.is_none()).expect("not stopped");
         Ok(())
     }
 }

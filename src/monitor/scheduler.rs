@@ -136,10 +136,6 @@ impl Scheduler {
     pub fn init(&self, monitor: &Monitor) {
         self.queue().clear();
 
-        let now = Local::now().duration_trunc(TimeDelta::seconds(1)).unwrap();
-        for srv in monitor.services.iter() {
-            self.reschedule(&srv, Some(now));
-        }
         self.queue().push(SchedulerEvent::Sysinfo {
             instant: Instant::now() + monitor.stats_interval,
         });

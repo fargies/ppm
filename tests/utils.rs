@@ -17,39 +17,35 @@
 **    misrepresented as being the original software.
 ** 3. This notice may not be removed or altered from any source distribution.
 **
-** Created on: 2025-12-22T15:46:40
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::tracing_utils::tracing_init;
-use anyhow::Result;
-use clap::Parser;
-use cmdline::{Action, Args, Client};
-use std::{env::current_exe, os::unix::process::CommandExt, path::Path, process};
+pub struct OnDrop<T>(Option<T>)
+where
+    T: FnOnce();
 
-pub mod cmdline;
-pub mod monitor;
-pub mod service;
-pub mod utils;
+impl<T> OnDrop<T>
+where
+    T: FnOnce(),
+{
+    pub fn new(fun: T) -> Self {
+        Self(Some(fun))
+    }
 
-fn main() -> Result<()> {
-    tracing_init(std::io::stderr, None)?;
+    #[allow(dead_code)]
+    pub fn deactivate(self) {
+        let mut this = self;
+        this.0.take();
+    }
+}
 
-    let args = Args::parse();
-    match args.action {
-        // `exec` the daemon process
-        Action::Daemon { config } => Err(process::Command::new(
-            current_exe()?
-                .parent()
-                .unwrap_or(Path::new("/"))
-                .join("ppm-daemon"),
-        )
-        .env("PPM_CONFIG", config.unwrap_or_default())
-        .env("PPM_LISTEN", args.addr.to_string())
-        .exec())?,
-        action => {
-            Client::connect(args.addr)?.run(&action)?;
+impl<T> Drop for OnDrop<T>
+where
+    T: FnOnce(),
+{
+    fn drop(&mut self) {
+        if let Some(callback) = self.0.take() {
+            callback()
         }
     }
-    Ok(())
 }
