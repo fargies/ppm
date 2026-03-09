@@ -40,7 +40,7 @@ where
     K: IntoIterator,
     K: FromIterator<K::Item>,
 {
-    pub fn into(self) -> K {
+    pub fn into_inner(self) -> K {
         match self {
             OneOrMany::One(item) => K::from_iter([item; 1]),
             OneOrMany::Many(k) => k,
@@ -56,18 +56,12 @@ impl<T> OneOrManyWrapper<T> {
     }
 }
 
-/* exlude Option */
-pub trait AllowOneOrMany {}
-impl<T> AllowOneOrMany for Vec<T> {}
-impl<T> AllowOneOrMany for VecDeque<T> {}
-
-impl<'a, V, T> Serialize for OneOrManyWrapper<&'a V>
+impl<'a, V> OneOrManyWrapper<&'a V>
 where
-    &'a V: IntoIterator<Item = T>,
-    T: Serialize,
-    V: AllowOneOrMany,
+    &'a V: IntoIterator,
+    <&'a V as IntoIterator>::Item: Serialize,
 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_one_or_many<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -91,11 +85,71 @@ where
     }
 }
 
-impl<'a, V, T> Serialize for OneOrManyWrapper<&'a Option<V>>
+impl<V> Serialize for OneOrManyWrapper<&Vec<V>>
 where
-    &'a V: IntoIterator<Item = T>,
-    T: Serialize,
-    V: AllowOneOrMany,
+    V: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.serialize_one_or_many(serializer)
+    }
+}
+
+impl<V> Serialize for OneOrManyWrapper<&VecDeque<V>>
+where
+    V: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.serialize_one_or_many(serializer)
+    }
+}
+
+impl<'de, K> Deserialize<'de> for OneOrManyWrapper<Vec<K>>
+where
+    K: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        OneOrMany::deserialize(deserializer).map(|m| OneOrManyWrapper(m.into_inner()))
+    }
+}
+
+impl<'de, K> Deserialize<'de> for OneOrManyWrapper<VecDeque<K>>
+where
+    K: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        OneOrMany::deserialize(deserializer).map(|m| OneOrManyWrapper(m.into_inner()))
+    }
+}
+
+pub struct Serde<T>(T);
+
+impl<'a, V> Serialize for Serde<&'a V>
+where
+    OneOrManyWrapper<&'a V>: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        OneOrManyWrapper(self.0).serialize(serializer)
+    }
+}
+
+impl<'a, V> Serialize for Serde<&'a Option<V>>
+where
+    OneOrManyWrapper<&'a V>: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -108,33 +162,28 @@ where
     }
 }
 
-impl<'de, K> Deserialize<'de> for OneOrManyWrapper<K>
+impl<'de, K> Deserialize<'de> for Serde<K>
 where
-    K: IntoIterator + Deserialize<'de>,
-    K: FromIterator<K::Item>,
-    K::Item: Deserialize<'de>,
-    K: AllowOneOrMany,
+    OneOrManyWrapper<K>: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        OneOrMany::<K>::deserialize(deserializer).map(|m| OneOrManyWrapper(m.into()))
+        OneOrManyWrapper::<K>::deserialize(deserializer).map(|m| Serde(m.into_inner()))
     }
 }
 
-impl<'de, K> Deserialize<'de> for OneOrManyWrapper<Option<K>>
+impl<'de, K> Deserialize<'de> for Serde<Option<K>>
 where
-    K: IntoIterator + Deserialize<'de>,
-    K: FromIterator<K::Item>,
-    K::Item: Deserialize<'de>,
+    OneOrManyWrapper<K>: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Option::<OneOrMany<K>>::deserialize(deserializer)
-            .map(|m| OneOrManyWrapper(m.map(|m| m.into())))
+        Option::<OneOrManyWrapper<K>>::deserialize(deserializer)
+            .map(|m| Serde(m.map(|m| m.into_inner())))
     }
 }
 
@@ -144,18 +193,18 @@ where
 pub fn serialize<S, V>(value: &V, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
-    for<'a> OneOrManyWrapper<&'a V>: Serialize,
+    for<'a> Serde<&'a V>: Serialize,
 {
-    OneOrManyWrapper(value).serialize(serializer)
+    Serde(value).serialize(serializer)
 }
 
 /// Deserializer for [Instant]
 pub fn deserialize<'de, D, V>(deserializer: D) -> Result<V, D::Error>
 where
     D: Deserializer<'de>,
-    OneOrManyWrapper<V>: Deserialize<'de>,
+    Serde<V>: Deserialize<'de>,
 {
-    OneOrManyWrapper::deserialize(deserializer).map(|m| m.0)
+    Serde::deserialize(deserializer).map(|m| m.0)
 }
 
 #[cfg(test)]
