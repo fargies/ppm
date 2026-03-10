@@ -18,8 +18,7 @@
 - Configure git-cliff
 - Add cliff in CI
 - Minor fix in release script
-- Release partner-pm version 1.4.3
-- Release partner-pm version 1.4.3
+
 ## [1.4.2] - 2026-02-28
 
 ### 🚀 Features
@@ -33,14 +32,12 @@
 
 - Fix license name
 
-### ⚙️ Miscellaneous Tasks
-
-- Release partner-pm version 1.4.2
 ## [1.4.1] - 2026-02-27
 
 ### ⚙️ Miscellaneous Tasks
 
 - Bump Cargo.toml
+
 ## [1.4.0] - 2026-02-27
 
 ### 🚀 Features
@@ -104,6 +101,7 @@
 - Add some traces in CI
 - Disabling log colors
 - Update todo list
+
 ## [1.3.0] - 2026-01-30
 
 ### 🚀 Features
@@ -126,6 +124,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Version bump
+
 ## [1.2.0] - 2026-01-24
 
 ### 🚀 Features
@@ -159,6 +158,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version v1.2.0
+
 ## [1.1.1] - 2026-01-14
 
 ### 🚀 Features
@@ -169,6 +169,7 @@
 
 - Add jq dependency
 - Bump
+
 ## [1.1.0] - 2026-01-12
 
 ### 🚀 Features
@@ -195,6 +196,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version
+
 ## [1.0.0] - 2026-01-08
 
 ### 🚀 Features
@@ -230,3 +232,4 @@
 - First import
 - Remove useless files
 - Add packaging in CI
+

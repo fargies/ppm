@@ -1,5 +1,12 @@
 # PPM
 
+[![Crates.io](https://img.shields.io/crates/v/partner-pm.svg)](https://crates.io/crates/partner-pm)
+[![CI](https://github.com/fargies/ppm/actions/workflows/main.yml/badge.svg)](https://github.com/fargies/ppm/actions/workflows/main.yml)
+[![License](https://img.shields.io/badge/license-Zlib-green)](LICENSE)
+
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/fargies)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/fargies)
+
 **PPM** (**P**artner **P**rocess **M**onitor) is a process-monitoring application
 designed to run and supervise processes inside [Docker](https://www.docker.com/)
 containers.

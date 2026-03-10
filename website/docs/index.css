@@ -79,3 +79,22 @@ a.x-link:visited {
 a.x-link:hover {
     color: var(--rp-c-link);
 }
+
+rspress-doc a > img[alt="Buy Me A Coffee"],
+rspress-doc a > img[alt="GitHub Sponsors"] {
+    display: inline;
+}
+
+.footer-sponsor-links {
+    right: 1em;
+    top: 50%;
+    transform: translate(0, -50%);
+    position: absolute;
+    /*display: none;*/
+    /*position: relative;*/
+}
+
+.footer-sponsor-links img {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+}

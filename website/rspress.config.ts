@@ -24,7 +24,12 @@ export default defineConfig({
       },
     ],
     footer: {
-      message: `<a class="x-link" href="https://github.com/fargies/ppm">ppm @ ${gitHash}</a> by <a class="x-link" href="https://github.com/fargies">Sylvain Fariger</a>`,
+      message:
+        `<a class="x-link" href="https://github.com/fargies/ppm">ppm @ ${gitHash}</a> by <a class="x-link" href="https://github.com/fargies">Sylvain Fariger</a>` +
+        '<div class="footer-sponsor-links">' +
+        '<a href="https://github.com/sponsors/fargies" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors" alt="GitHub Sponsors" class="medium-zoom-image"></a>' +
+        '<a href="https://www.buymeacoffee.com/fargies" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?logo=buymeacoffee&amp;logoColor=black" alt="Buy Me A Coffee" class="medium-zoom-image"></a>' +
+        "</div>",
     },
   },
   globalStyles: path.join(__dirname, "docs/index.css"),
