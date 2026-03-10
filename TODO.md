@@ -10,3 +10,8 @@
 - [x] allow to monitor single files
 - [x] documentation and schema for logger
 - [] when rotating files do look for `\n` boundaries
+- [] doc show minimalistic service config (id not mandatory)
+- [] installation -> publish on docker hub
+- [] external API (grpc ?)
+- [] binaries shipped with releases on GitHub
+- [] add mode to spawn service as container (having ppm in entry-point) CMD
