@@ -166,13 +166,15 @@ mod tests {
 
     #[test]
     fn convert() -> Result<()> {
-        let now = Instant::now();
-        let systime = to_systime(&now);
+        let ref_instant = Instant::now();
+        let ref_systime = to_systime(&ref_instant);
         std::thread::sleep(Duration::from_millis(10));
         update_ref_instant();
+        let now = SystemTime::now();
+        tracing::trace!(?ref_systime, new_ref_systime = ?to_systime(&ref_instant));
         assert_eq!(
-            systime.elapsed()?.as_millis(),
-            to_systime(&now).elapsed()?.as_millis()
+            now.duration_since(ref_systime)?.as_millis(),
+            now.duration_since(to_systime(&ref_instant))?.as_millis(),
         );
         Ok(())
     }
