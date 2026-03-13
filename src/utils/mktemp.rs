@@ -29,7 +29,7 @@ use std::{
     fs::{File, create_dir},
     io::{ErrorKind, Result},
     ops::{Deref, DerefMut},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 /// Convenience empty struct
@@ -51,6 +51,12 @@ impl Display for TempFile {
 
 impl AsRef<PathBuf> for TempFile {
     fn as_ref(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for TempFile {
+    fn as_ref(&self) -> &Path {
         &self.path
     }
 }

@@ -96,36 +96,84 @@ where
 
 /// Load anything that can be [DeserializeOwned] from a file
 pub trait LoadFromFile: Sized {
-    fn load_from_file(filename: &Path) -> Result<Self>;
+    fn load_from_file<P>(filename: P) -> Result<Self>
+    where
+        P: AsRef<Path>;
 }
 
 impl<T> LoadFromFile for T
 where
-    T: DeserializeOwned + std::fmt::Debug,
+    T: DeserializeOwned,
 {
-    #[tracing::instrument(err)]
-    fn load_from_file(filename: &Path) -> Result<Self> {
-        let mut f = File::open(filename).with_context(|| format!("failed to load {filename:?}"))?;
+    #[tracing::instrument(fields(filename = ?filename.as_ref()), err)]
+    fn load_from_file<P>(filename: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let mut f = File::open(filename.as_ref())
+            .with_context(|| format!("failed to load {:?}", filename.as_ref()))?;
         let mut buf = Vec::with_capacity(f.metadata().map(|m| m.size() as usize).unwrap_or(2048));
 
         f.read_to_end(&mut buf)?;
-        serde_yaml_ng::from_slice(&buf).with_context(|| format!("failed to load {filename:?}"))
+        serde_yaml_ng::from_slice(&buf)
+            .with_context(|| format!("failed to load {:?}", filename.as_ref()))
     }
 }
 
 /// Save any [Serialize] items to a file
 #[allow(dead_code)]
 pub trait SaveToFile: Sized {
-    fn save_to_file(&self, filename: &Path) -> Result<()>;
+    fn save_to_file<P>(&self, filename: P) -> Result<()>
+    where
+        P: AsRef<Path>;
 }
 
 impl<T> SaveToFile for T
 where
     T: Serialize,
 {
-    fn save_to_file(&self, filename: &Path) -> Result<()> {
+    fn save_to_file<P>(&self, filename: P) -> Result<()>
+    where
+        P: AsRef<Path>,
+    {
         let data = serde_yaml_ng::to_string(self).expect("failed to serialize");
 
         Ok(File::create(filename)?.write_all(data.as_bytes())?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::MkTemp;
+
+    use super::*;
+    use anyhow::Result;
+    use serde::{Deserialize, Serialize};
+
+    #[test]
+    fn serde_files() -> Result<()> {
+        #[derive(Serialize, Deserialize)]
+        struct TestSerdeFile {
+            pub foo: i32,
+        }
+
+        let temp_file = MkTemp::file("serde_files")?;
+        let test_object = TestSerdeFile { foo: 42 };
+
+        anyhow::ensure!(
+            TestSerdeFile::load_from_file(&temp_file).is_err(),
+            "should fail to load an empty file"
+        );
+        anyhow::ensure!(
+            TestSerdeFile::load_from_file(AsRef::<Path>::as_ref(&temp_file).join("not a file"))
+                .is_err(),
+            "should fail to load an non-existing file"
+        );
+        test_object.save_to_file(&temp_file)?;
+
+        let test_object = TestSerdeFile::load_from_file(&temp_file)?;
+        assert_eq!(test_object.foo, 42);
+
+        Ok(())
     }
 }

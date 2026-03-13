@@ -31,87 +31,130 @@ use utils::OnDrop;
 const PPM_BIN: &str = std::env!("CARGO_BIN_EXE_ppm");
 const SERVER_ADDR: &str = "127.0.0.1:34567";
 
-fn ppm() -> Command {
-    let mut ret = Command::new(PPM_BIN);
-    ret.args(["--addr", SERVER_ADDR]);
-    ret
-}
+/* to eliminate this from coverage */
+mod tests {
+    use super::*;
 
-#[test]
-#[file_serial(server)]
-fn cli_utils() -> Result<()> {
-    let mut server = ppm().arg("daemon").spawn()?;
-    let _server_guard = OnDrop::new(move || {
-        unsafe {
-            libc::kill(server.id() as i32, libc::SIGTERM);
+    fn ppm() -> Command {
+        let mut ret = Command::new(PPM_BIN);
+        ret.args(["--addr", SERVER_ADDR]);
+        ret
+    }
+
+    #[test]
+    #[file_serial(server)]
+    fn cli_utils() -> Result<()> {
+        let mut server = ppm().arg("daemon").spawn()?;
+        let _server_guard = OnDrop::new(move || {
+            unsafe {
+                libc::kill(server.id() as i32, libc::SIGTERM);
+            }
+            assert!(
+                server.wait().expect("failed to terminate server").success(),
+                "server improper termination"
+            );
+            server.kill().expect("failed to kill server")
+        });
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm()
+                .args(["add", "--name", "test", "--", "sleep", "300"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+        assert!(
+            ppm()
+                .args(["add", "--name", "stopped", "--", "sleep", "300"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+        assert!(
+            ppm().args(["stop", "stopped"]).status()?.success(),
+            "failed to stop service"
+        );
+
+        assert!(
+            ppm()
+                .args(["add", "--name", "crashed", "--", "false"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+
+        assert!(
+            !ppm().args(["unknown"]).status()?.success(),
+            "unknown command should fail"
+        );
+
+        for cmd in [
+            "info",
+            "list",
+            "ls",
+            "status",
+            "show-configuration",
+            "show-config",
+            "config",
+            "stats",
+            "statistics",
+            "details",
+            "show-scheduler",
+        ] {
+            assert!(
+                ppm().arg(cmd).status()?.success(),
+                "failed run command: {:?}",
+                cmd
+            );
         }
-        assert!(
-            server.wait().expect("failed to terminate server").success(),
-            "server improper termination"
-        );
-        server.kill().expect("failed to kill server")
-    });
-    std::thread::sleep(std::time::Duration::from_secs(1));
 
-    assert!(
-        ppm()
-            .args(["add", "--name", "test", "--", "sleep", "300"])
-            .status()?
-            .success(),
-        "failed to add service"
-    );
-    assert!(
-        ppm()
-            .args(["add", "--name", "stopped", "--", "sleep", "300"])
-            .status()?
-            .success(),
-        "failed to add service"
-    );
-    assert!(
-        ppm().args(["stop", "stopped"]).status()?.success(),
-        "failed to stop service"
-    );
+        for cmd in ["restart", "stop", "reschedule", "remove"] {
+            assert!(
+                ppm().arg(cmd).arg("test").status()?.success(),
+                "failed to run command: {:?}",
+                cmd
+            );
+        }
 
-    assert!(
-        ppm()
-            .args(["add", "--name", "crashed", "--", "false"])
-            .status()?
-            .success(),
-        "failed to add service"
-    );
-
-    assert!(
-        !ppm().args(["unknown"]).status()?.success(),
-        "unknown command should fail"
-    );
-
-    for cmd in [
-        "info",
-        "list",
-        "ls",
-        "status",
-        "show-configuration",
-        "show-config",
-        "config",
-        "stats",
-        "statistics",
-        "details",
-        "show-scheduler",
-    ] {
-        assert!(
-            ppm().arg(cmd).status()?.success(),
-            "failed run command: {:?}",
-            cmd
-        );
+        Ok(())
     }
 
-    for cmd in ["restart", "stop", "reschedule", "remove"] {
-        assert!(
-            ppm().arg(cmd).arg("test").status()?.success(),
-            "failed to run command: {:?}",
-            cmd
-        );
-    }
+    #[test]
+    #[file_serial(server)]
+    fn cli_add_env() -> Result<()> {
+        let mut server = ppm().arg("daemon").spawn()?;
+        let _server_guard = OnDrop::new(move || {
+            unsafe {
+                libc::kill(server.id() as i32, libc::SIGTERM);
+            }
+            assert!(
+                server.wait().expect("failed to terminate server").success(),
+                "server improper termination"
+            );
+            server.kill().expect("failed to kill server")
+        });
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
-    Ok(())
+        assert!(
+            ppm()
+                .args([
+                    "add", "--name", "test", "--env", "TOTO=42", "--", "sleep", "300"
+                ])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+        assert!(
+            !ppm()
+                .args([
+                    "add", "--name", "test", "--env", "TOTO", "--", "sleep", "300"
+                ])
+                .status()?
+                .success(),
+            "should fail to add service with invalid env"
+        );
+
+        Ok(())
+    }
 }

@@ -25,53 +25,57 @@ use std::{fs, process::Command};
 use anyhow::{Context, Result, ensure};
 use serial_test::file_serial;
 
-fn find_jsonschema() -> Result<String> {
-    match Command::new("check-jsonschema").arg("--help").status() {
-        Ok(ret) if ret.success() => Ok(String::from("check-jsonschema")),
-        _ => {
-            if !std::fs::exists("target/venv/bin/check-jsonschema").unwrap_or(false) {
-                ensure!(
-                    Command::new("python")
-                        .args(["-m", "venv", "target/venv"])
-                        .status()?
-                        .success(),
-                    "failed to create venv"
-                );
-                ensure!(
-                    Command::new("target/venv/bin/pip")
-                        .args(["install", "check-jsonschema"])
-                        .status()?
-                        .success(),
-                    "failed to run pip"
-                );
+mod tests {
+    use super::*;
+
+    fn find_jsonschema() -> Result<String> {
+        match Command::new("check-jsonschema").arg("--help").status() {
+            Ok(ret) if ret.success() => Ok(String::from("check-jsonschema")),
+            _ => {
+                if !std::fs::exists("target/venv/bin/check-jsonschema").unwrap_or(false) {
+                    ensure!(
+                        Command::new("python")
+                            .args(["-m", "venv", "target/venv"])
+                            .status()?
+                            .success(),
+                        "failed to create venv"
+                    );
+                    ensure!(
+                        Command::new("target/venv/bin/pip")
+                            .args(["install", "check-jsonschema"])
+                            .status()?
+                            .success(),
+                        "failed to run pip"
+                    );
+                }
+                Ok(String::from("target/venv/bin/check-jsonschema"))
             }
-            Ok(String::from("target/venv/bin/check-jsonschema"))
         }
     }
-}
 
-#[test]
-#[file_serial(venv)]
-fn validate_schema() -> Result<()> {
-    let json_schema_exe = find_jsonschema()?;
-    for file in fs::read_dir("./data")?
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|f| f.contains("config") && f.ends_with("yml"))
-        })
-        .map(|e| e.path())
-    {
-        println!("validating schema on {:?}", file);
+    #[test]
+    #[file_serial(venv)]
+    fn validate_schema() -> Result<()> {
+        let json_schema_exe = find_jsonschema()?;
+        for file in fs::read_dir("./data")?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_some_and(|f| f.contains("config") && f.ends_with("yml"))
+            })
+            .map(|e| e.path())
+        {
+            println!("validating schema on {:?}", file);
 
-        let mut validate = Command::new(&json_schema_exe)
-            .args(["--schemafile", "./data/config.schema.json"])
-            .arg(file)
-            .spawn()
-            .context("check-jsonschema failed")?;
+            let mut validate = Command::new(&json_schema_exe)
+                .args(["--schemafile", "./data/config.schema.json"])
+                .arg(file)
+                .spawn()
+                .context("check-jsonschema failed")?;
 
-        assert!(validate.wait()?.success());
+            assert!(validate.wait()?.success());
+        }
+        Ok(())
     }
-    Ok(())
 }

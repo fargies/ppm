@@ -23,9 +23,12 @@
 
 #![allow(dead_code)]
 
-use std::sync::{
-    LazyLock,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    ops::Deref,
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 /// Lazy loaded atomic boolean value
@@ -42,5 +45,35 @@ impl LazyBool {
 
     pub fn set(&self, value: bool) {
         self.0.store(value, Ordering::Relaxed)
+    }
+}
+
+impl Deref for LazyBool {
+    type Target = bool;
+
+    fn deref(&self) -> &Self::Target {
+        match self.get() {
+            true => &true,
+            false => &false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static TEST_VALUE: LazyBool = LazyBool::new(|| AtomicBool::new(true));
+
+    #[test]
+    fn lazy_bool() {
+        TEST_VALUE.set(false);
+
+        assert!(!TEST_VALUE.get());
+        assert!(!*TEST_VALUE);
+
+        TEST_VALUE.set(true);
+        assert!(TEST_VALUE.get());
+        assert!(*TEST_VALUE);
     }
 }
