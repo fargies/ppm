@@ -20,11 +20,18 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::process::{Child, Command};
+use std::{
+    io::Write,
+    path::Path,
+    process::{Child, Command},
+};
 
 use anyhow::Result;
 use ppm::utils::OnDrop;
 use serial_test::file_serial;
+
+mod utils;
+use utils::MkTemp;
 
 const PPM_BIN: &str = std::env!("CARGO_BIN_EXE_ppm");
 const SERVER_ADDR: &str = "127.0.0.1:34567";
@@ -145,6 +152,41 @@ mod tests {
                 .status()?
                 .success(),
             "should fail to add service with invalid env"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[file_serial(server)]
+    fn cli_stats() -> Result<()> {
+        let mut config = MkTemp::file("cli_stats")?;
+        config.write_all(b"stats_interval: 250ms")?;
+
+        let server = ppm()
+            .arg("daemon")
+            .arg(format!(
+                "--config={}",
+                AsRef::<Path>::as_ref(&config).display()
+            ))
+            .spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm()
+                .args([
+                    "add", "--name", "test", "--env", "TOTO=42", "--", "sleep", "300"
+                ])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm().arg("stats").status()?.success(),
+            "failed to get stats"
         );
 
         Ok(())

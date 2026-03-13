@@ -30,6 +30,20 @@ use humantime::format_duration;
 use super::instant::to_systime;
 use crate::utils::IS_OUT_COLORED;
 
+/// formating utility for tabled
+///
+/// Use with:
+/// ```rust
+/// use tabled::{derive::display, Tabled};
+/// use ppm::utils::serializers::tabled::TDisplay;
+///
+/// #[derive(Tabled)]
+/// pub struct Info {
+///
+///   #[tabled(display("TDisplay::to_string"))]
+///   pub active: bool,
+/// }
+/// ```
 pub trait TDisplay {
     fn to_string(&self) -> String;
 }
