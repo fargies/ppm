@@ -20,13 +20,11 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::process::Command;
+use std::process::{Child, Command};
 
 use anyhow::Result;
+use ppm::utils::OnDrop;
 use serial_test::file_serial;
-
-mod utils;
-use utils::OnDrop;
 
 const PPM_BIN: &str = std::env!("CARGO_BIN_EXE_ppm");
 const SERVER_ADDR: &str = "127.0.0.1:34567";
@@ -41,20 +39,23 @@ mod tests {
         ret
     }
 
+    fn kill_server(server: Child) {
+        let mut server = server;
+        unsafe {
+            libc::kill(server.id() as i32, libc::SIGTERM);
+        }
+        assert!(
+            server.wait().expect("failed to terminate server").success(),
+            "server improper termination"
+        );
+        server.kill().expect("failed to kill server")
+    }
+
     #[test]
     #[file_serial(server)]
     fn cli_utils() -> Result<()> {
-        let mut server = ppm().arg("daemon").spawn()?;
-        let _server_guard = OnDrop::new(move || {
-            unsafe {
-                libc::kill(server.id() as i32, libc::SIGTERM);
-            }
-            assert!(
-                server.wait().expect("failed to terminate server").success(),
-                "server improper termination"
-            );
-            server.kill().expect("failed to kill server")
-        });
+        let server = ppm().arg("daemon").spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         assert!(
@@ -123,17 +124,8 @@ mod tests {
     #[test]
     #[file_serial(server)]
     fn cli_add_env() -> Result<()> {
-        let mut server = ppm().arg("daemon").spawn()?;
-        let _server_guard = OnDrop::new(move || {
-            unsafe {
-                libc::kill(server.id() as i32, libc::SIGTERM);
-            }
-            assert!(
-                server.wait().expect("failed to terminate server").success(),
-                "server improper termination"
-            );
-            server.kill().expect("failed to kill server")
-        });
+        let server = ppm().arg("daemon").spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         assert!(

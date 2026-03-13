@@ -23,24 +23,17 @@
 
 use anyhow::Result;
 use dirs::{config_local_dir, home_dir};
+use ppm::{
+    cmdline::{self, DEFAULT_ADDR},
+    monitor::Monitor,
+    utils::{LoadFromFile, tracing_utils::tracing_init},
+};
 use std::{
     env::{self, current_dir},
     net::SocketAddr,
     path::PathBuf,
     sync::Arc,
 };
-
-use cmdline::DEFAULT_ADDR;
-use monitor::Monitor;
-
-pub mod cmdline;
-pub mod monitor;
-pub mod service;
-
-mod utils;
-use utils::LoadFromFile;
-
-use crate::utils::tracing_utils::tracing_init;
 
 #[tracing::instrument(ret)]
 pub fn find_config_file() -> Option<PathBuf> {

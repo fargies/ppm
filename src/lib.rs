@@ -20,32 +20,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-pub struct OnDrop<T>(Option<T>)
-where
-    T: FnOnce();
-
-impl<T> OnDrop<T>
-where
-    T: FnOnce(),
-{
-    pub fn new(fun: T) -> Self {
-        Self(Some(fun))
-    }
-
-    #[allow(dead_code)]
-    pub fn deactivate(self) {
-        let mut this = self;
-        this.0.take();
-    }
-}
-
-impl<T> Drop for OnDrop<T>
-where
-    T: FnOnce(),
-{
-    fn drop(&mut self) {
-        if let Some(callback) = self.0.take() {
-            callback()
-        }
-    }
-}
+pub mod cmdline;
+pub mod monitor;
+pub mod service;
+pub mod utils;

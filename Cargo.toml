@@ -31,14 +31,21 @@ pre-release-hook = ["git", "cliff", "-o", "ChangeLog.md", "--tag", "{{version}}"
 [[bin]]
 name = "ppm"
 path = "src/main.rs"
+test = false
 
 [[bin]]
 name = "ppm-daemon"
 path = "src/daemon.rs"
+test = false
 
 [[bin]]
 name = "ppm-launcher"
 path = "src/launcher.rs"
+test = false
+
+[lib]
+name = "ppm"
+doctest = true
 
 [dependencies]
 anyhow = "1.0.100"

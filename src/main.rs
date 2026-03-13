@@ -21,16 +21,13 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::tracing_utils::tracing_init;
 use anyhow::Result;
 use clap::Parser;
-use cmdline::{Action, Args, Client};
+use ppm::{
+    cmdline::{Action, Args, Client},
+    utils::tracing_utils::tracing_init,
+};
 use std::{env::current_exe, os::unix::process::CommandExt, path::Path, process};
-
-pub mod cmdline;
-pub mod monitor;
-pub mod service;
-pub mod utils;
 
 fn main() -> Result<()> {
     tracing_init(std::io::stderr, None)?;

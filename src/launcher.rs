@@ -20,31 +20,16 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-/* this binary uses only part of the utils */
-#![allow(unused_imports)]
-#![allow(dead_code)]
-
 use anyhow::{Result, anyhow};
 use std::{
     env,
-    os::{
-        fd::{FromRawFd, RawFd},
-        unix::process::CommandExt,
-    },
+    os::unix::process::CommandExt,
     process::{self, Stdio},
 };
 
-mod monitor;
-mod service;
-mod utils;
-
 #[cfg(target_os = "linux")]
-use crate::utils::signal::{SIGTERM, Signal};
-use crate::utils::{
-    libc::{Fcntl, getpid},
-    signal::SignalSet,
-    tracing_utils::tracing_init,
-};
+use ppm::utils::signal::{SIGTERM, Signal};
+use ppm::utils::{libc::getpid, signal::SignalSet, tracing_utils::tracing_init};
 
 /// This is an intermediate binary to properly
 /// restore signals and set a couple flags on the new process.
