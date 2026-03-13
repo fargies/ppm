@@ -35,7 +35,7 @@ use crate::{
     utils::{
         self,
         libc::{getpgid, getpid, gettid, setsid, waitpid},
-        serializers::{human, instant::check_ref_time},
+        serializers::{human, instant::RefTimePoint},
         signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
     },
 };
@@ -192,7 +192,7 @@ impl Monitor {
                     });
                 }
                 SchedulerEvent::ClockCheck { instant } => {
-                    if !check_ref_time() {
+                    if !RefTimePoint::check(None) {
                         tracing::info!("refreshing scheduler");
                         self.scheduler.init(self);
                     }

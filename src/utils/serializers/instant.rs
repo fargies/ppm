@@ -31,69 +31,90 @@ use std::{
 use humantime_serde;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-static REF_INSTANT: RwLock<Option<(Instant, SystemTime)>> = RwLock::new(None);
+static REF_INSTANT: RwLock<Option<RefTimePoint>> = RwLock::new(None);
 const MAX_DRIFT: Duration = Duration::from_millis(10);
 
-#[tracing::instrument()]
-fn update_ref_instant() -> (Instant, SystemTime) {
-    tracing::info!("updating time reference");
-    let ref_time = (Instant::now(), SystemTime::now());
-    *REF_INSTANT.write().unwrap() = Some(ref_time);
-    ref_time
+#[derive(Copy, Clone)]
+pub struct RefTimePoint {
+    pub instant: Instant,
+    pub systime: SystemTime,
 }
 
-/// Check reference instant/systime drift
-///
-/// returns false if reference time was updated
-pub fn check_ref_time() -> bool {
-    let (check_instant, check_time) = (Instant::now(), SystemTime::now());
-    let converted_instant = from_systime(&check_time);
+impl RefTimePoint {
+    #[inline]
+    #[allow(clippy::new_without_default)]
+    fn new() -> Self {
+        Self {
+            instant: Instant::now(),
+            systime: SystemTime::now(),
+        }
+    }
 
-    let drift = if converted_instant >= check_instant {
-        converted_instant.duration_since(check_instant)
-    } else {
-        check_instant.duration_since(converted_instant)
-    };
-    if drift >= MAX_DRIFT {
-        tracing::warn!(
-            drift = humantime::format_duration(drift).to_string(),
-            "clock drift detected"
-        );
-        update_ref_instant();
-        false
-    } else {
-        true
+    #[inline]
+    pub fn get() -> Self {
+        let ref_instant = *REF_INSTANT.read().unwrap();
+        ref_instant.unwrap_or_else(Self::update)
+    }
+
+    /// Update global reference time point
+    ///
+    /// returns the new [RefTimePoint]
+    #[tracing::instrument()]
+    pub fn update() -> Self {
+        let ref_time = Self::new();
+        *REF_INSTANT.write().unwrap() = Some(ref_time);
+        ref_time
+    }
+
+    /// Check reference instant/systime drift
+    ///
+    /// returns false if reference time was updated
+    pub fn check(max_drift: Option<Duration>) -> bool {
+        let new_ref = Self::new();
+        let converted_instant = from_systime(&new_ref.systime);
+
+        let drift = if converted_instant >= new_ref.instant {
+            converted_instant.duration_since(new_ref.instant)
+        } else {
+            new_ref.instant.duration_since(converted_instant)
+        };
+        if drift >= max_drift.unwrap_or(MAX_DRIFT) {
+            tracing::warn!(
+                drift = humantime::format_duration(drift).to_string(),
+                "clock drift detected"
+            );
+            *REF_INSTANT.write().unwrap() = Some(new_ref);
+            false
+        } else {
+            true
+        }
     }
 }
 
 /// Convert [SystemTime] to [Instant] using a reference time-point
 pub fn from_systime(systime: &SystemTime) -> Instant {
-    let ref_instant = *REF_INSTANT.read().unwrap();
-    let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
-    if &ref_instant.1 >= systime {
-        let duration = ref_instant
-            .1
+    let tp = RefTimePoint::get();
+    if &tp.systime >= systime {
+        let duration = tp
+            .systime
             .duration_since(*systime)
             .unwrap_or(Duration::ZERO);
-        ref_instant.0.checked_sub(duration).unwrap()
+        tp.instant.checked_sub(duration).unwrap()
     } else {
-        let duration = systime
-            .duration_since(ref_instant.1)
-            .unwrap_or(Duration::ZERO);
-        ref_instant.0.checked_add(duration).unwrap()
+        let duration = systime.duration_since(tp.systime).unwrap_or(Duration::ZERO);
+        tp.instant.checked_add(duration).unwrap()
     }
 }
 
 /// Convert [Instant] to [SystemTime] using a reference time-point
 pub fn to_systime(instant: &Instant) -> SystemTime {
-    let ref_instant = *REF_INSTANT.read().unwrap();
-    let ref_instant = ref_instant.unwrap_or_else(update_ref_instant);
-    if &ref_instant.0 >= instant {
-        let duration = ref_instant.0.duration_since(*instant);
-        ref_instant.1.checked_sub(duration).unwrap()
+    let tp = RefTimePoint::get();
+    if &tp.instant >= instant {
+        let duration = tp.instant.duration_since(*instant);
+        tp.systime.checked_sub(duration).unwrap()
     } else {
-        let duration = instant.duration_since(ref_instant.0);
-        ref_instant.1.checked_add(duration).unwrap()
+        let duration = instant.duration_since(tp.instant);
+        tp.systime.checked_add(duration).unwrap()
     }
 }
 
@@ -163,15 +184,17 @@ mod tests {
     use anyhow::Result;
     use serde::{Deserialize, Serialize};
     use serde_yaml_ng as yaml;
+    use std::time::Duration;
 
     #[test]
     fn convert() -> Result<()> {
+        RefTimePoint::check(Some(Duration::from_micros(500)));
         let ref_instant = Instant::now();
         let ref_systime = to_systime(&ref_instant);
         std::thread::sleep(Duration::from_millis(10));
-        update_ref_instant();
+        RefTimePoint::update();
         let now = SystemTime::now();
-        tracing::trace!(?ref_systime, new_ref_systime = ?to_systime(&ref_instant));
+        tracing::trace!(?ref_instant, ?ref_systime, new_ref_systime = ?to_systime(&ref_instant));
         assert_eq!(
             now.duration_since(ref_systime)?.as_millis(),
             now.duration_since(to_systime(&ref_instant))?.as_millis(),
