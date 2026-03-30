@@ -7,8 +7,14 @@ env:
   RUST_LOG_STYLE: never
   RUST_LOG: trace
 
+concurrency:
+  # cancel branch jobs on new pushs
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-ubuntu-default:
+    name: test | default
     runs-on: ubuntu-latest
     steps:
       - name: Fetch sources
@@ -20,7 +26,41 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
+  build-ubuntu-release:
+    name: build | release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v5
+      - name: Build project
+        run: cargo build --release
+      - name: Deploy | Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            target/release/ppm
+            target/release/ppm-launcher
+            target/release/ppm-daemon
+
+  build-ubuntu-coverage:
+    name: test | coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v5
+      - name: Install cargo-coverage
+        run: |
+          cargo install --git "https://github.com/fargies/cargo-coverage"
+          cargo install grcov
+          rustup component add llvm-tools
+      - name: Run tests with coverage
+        run: cargo cover
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+
   build:
+    name: test | matrix
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -36,6 +76,7 @@ jobs:
         run: cargo clippy -- -D warnings
 
   changelog:
+    name: test | changelog
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

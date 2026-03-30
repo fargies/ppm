@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/partner-pm.svg)](https://crates.io/crates/partner-pm)
 [![CI](https://github.com/fargies/ppm/actions/workflows/main.yml/badge.svg)](https://github.com/fargies/ppm/actions/workflows/main.yml)
+[![Coverage](https://coveralls.io/repos/github/fargies/ppm/badge.svg?branch=master)](https://coveralls.io/github/fargies/ppm?branch=master)
 [![License](https://img.shields.io/badge/license-Zlib-green)](LICENSE)
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/fargies)

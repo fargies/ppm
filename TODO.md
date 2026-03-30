@@ -15,3 +15,5 @@
 - [] external API (grpc ?)
 - [] binaries shipped with releases on GitHub
 - [] add mode to spawn service as container (having ppm in entry-point) CMD
+- [] add daemon log-file (with rotate and config)
+- [] add hot-reload feature
