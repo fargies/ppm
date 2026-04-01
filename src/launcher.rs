@@ -46,16 +46,6 @@ use crate::utils::{
     tracing_utils::tracing_init,
 };
 
-fn prepare_stdio(fd: RawFd) -> Stdio {
-    match fd.get_flags().is_ok() {
-        true => unsafe { Stdio::from_raw_fd(fd) },
-        false => {
-            tracing::debug!(fd, "fd not opened, forwarding to parent");
-            Stdio::inherit()
-        }
-    }
-}
-
 /// This is an intermediate binary to properly
 /// restore signals and set a couple flags on the new process.
 ///

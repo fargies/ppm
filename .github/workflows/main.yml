@@ -55,7 +55,10 @@ jobs:
           cargo install grcov
           rustup component add llvm-tools
       - name: Run tests with coverage
-        run: cargo cover
+        run: |
+          # compile ppm-launcher that is used in tests
+          RUSTFLAGS=-Cinstrument-coverage cargo build
+          cargo cover
       - name: Coveralls
         uses: coverallsapp/github-action@v2
 

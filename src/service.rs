@@ -463,6 +463,33 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
+    fn does_not_exist() -> Result<()> {
+        (SignalSet::empty() + SIGCHLD).block()?;
+        let service = Service::new("test", Command::new("does_not_exist", ["does_not_exist"]));
+        service.start(None);
+        let mon = Arc::new(Monitor::default());
+        let service = mon.insert(service);
+
+        assert!(service.info().pid.is_some_and(|pid| pid > 0));
+        assert_eq!(service.info().status, Status::Running);
+
+        wait_for!(
+            mon.on_sigchld() != 0 && service.info().pid.is_none(),
+            "pid:{:?}",
+            service.info().pid
+        )
+        .expect("service should terminate");
+
+        assert_eq!(service.info().pid, None);
+        assert_eq!(service.info().status, Status::Crashed);
+
+        service.stop();
+        assert!(!service.info().active);
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
     fn stop() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));

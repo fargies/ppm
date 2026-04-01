@@ -383,6 +383,18 @@ mod tests {
 
         let logger: Logger = yaml::from_str("path: /tmp\nmax_file_size: 1MiB")?;
         assert_eq!(1024 * 1024, logger.max_file_size);
+
+        let logger: Logger = yaml::from_str("path: /tmp\nmax_file_size: 1MiB\nmax_files: 30")?;
+        let logger: Logger = yaml::from_str(yaml::to_string(&logger)?.as_str())?;
+        assert_eq!(&PathBuf::from("/tmp"), logger.path.as_path());
+        assert_eq!(30, logger.max_files);
+        assert_eq!(1024 * 1024, logger.max_file_size);
+
+        let logger: Logger = yaml::from_str("{}")?;
+        let logger: Logger = yaml::from_str(yaml::to_string(&logger)?.as_str())?;
+        assert_eq!(&PathBuf::from(LOGGER_DEFAULT_PATH), logger.path.as_path());
+        assert_eq!(LOGFILE_MAX_FILES_DEFAULT, logger.max_files);
+        assert_eq!(LOGFILE_MAX_SIZE_DEFAULT, logger.max_file_size);
         Ok(())
     }
 }
