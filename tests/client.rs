@@ -31,13 +31,17 @@ use ppm::utils::OnDrop;
 use serial_test::file_serial;
 
 mod utils;
-use utils::MkTemp;
+use utils::{MkTemp, wait_for};
 
 const PPM_BIN: &str = std::env!("CARGO_BIN_EXE_ppm");
 const SERVER_ADDR: &str = "127.0.0.1:34567";
 
 /* to eliminate this from coverage */
 mod tests {
+    use std::{io::Read, process::Stdio, time::Duration};
+
+    use anyhow::Context;
+
     use super::*;
 
     fn ppm() -> Command {
@@ -175,9 +179,7 @@ mod tests {
 
         assert!(
             ppm()
-                .args([
-                    "add", "--name", "test", "--env", "TOTO=42", "--", "sleep", "300"
-                ])
+                .args(["add", "--name", "test", "--", "sleep", "300"])
                 .status()?
                 .success(),
             "failed to add service"
@@ -189,6 +191,103 @@ mod tests {
             "failed to get stats"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    #[file_serial(server)]
+    fn cli_logs() -> Result<()> {
+        let log_dir = MkTemp::dir("cli_logs")?;
+        let mut config = MkTemp::file("cli_logs")?;
+        config.write_all(format!("logger: {{ path: {:?} }}", log_dir.as_path()).as_bytes())?;
+
+        let server = ppm()
+            .arg("daemon")
+            .arg(format!(
+                "--config={}",
+                AsRef::<Path>::as_ref(&config).display()
+            ))
+            .spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm()
+                .args(["add", "--name", "test", "--", "echo", "world"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+
+        wait_for!(
+            log_dir
+                .as_path()
+                .read_dir()?
+                .filter(|f| f
+                    .as_ref()
+                    .is_ok_and(|f| f.file_name().to_string_lossy().starts_with("test-")))
+                .count()
+                == 1
+        )
+        .context("log file not created")?;
+
+        let out = str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)?.to_string();
+        assert_eq!(out, String::from("world\n"));
+
+        assert!(
+            ppm().args(["restart", "test"]).status()?.success(),
+            "failed to restart service"
+        );
+        wait_for!(
+            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\nworld\n"
+        )?;
+
+        Ok(())
+    }
+
+    #[test]
+    #[file_serial(server)]
+    fn cli_log_tracker() -> Result<()> {
+        let log_dir = MkTemp::dir("cli_log_tracker")?;
+        let mut config = MkTemp::file("cli_log_tracker")?;
+        config.write_all(format!("logger: {{ path: {:?} }}", log_dir.as_path()).as_bytes())?;
+
+        let server = ppm()
+            .arg("daemon")
+            .arg(format!(
+                "--config={}",
+                AsRef::<Path>::as_ref(&config).display()
+            ))
+            .spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm()
+                .args(["add", "--name", "test", "--", "echo", "world"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+        let mut tail = ppm().args(["log", "-f", "test"]).stdout(Stdio::piped()).spawn()?;
+        let mut buf = [0; 10];
+        wait_for!({
+            let n = tail.stdout.as_mut().expect("stdout not captured").read(&mut buf)?;
+            str::from_utf8(&buf[..n])? == "world\n"
+        }, Duration::from_secs(3), "failed to get tail: {}", str::from_utf8(&buf)?)?;
+        assert!(
+            ppm().args(["restart", "test"]).status()?.success(),
+            "failed to restart service"
+        );
+
+        buf.fill(0);
+        wait_for!({
+            let n = tail.stdout.as_mut().expect("stdout not captured").read(&mut buf)?;
+            str::from_utf8(&buf[..n])? == "world\n"
+        }, Duration::from_secs(3), "failed to get tail: {}", str::from_utf8(&buf)?)?;
+
+        unsafe { libc::kill(tail.id() as i32, libc::SIGTERM) };
+        tail.wait()?;
         Ok(())
     }
 }
