@@ -22,15 +22,22 @@
 
 use anyhow::Result;
 use std::{
+    cell::Cell,
     fs::File,
     io::{self, stdout},
+    os::fd::{AsRawFd, RawFd},
     path::PathBuf,
 };
 
+use crate::{
+    cmdline::Action,
+    utils::{
+        OnDrop,
+        signal::{SIGINT, SIGTERM, Signal},
+    },
+};
 #[cfg(target_os = "linux")]
 use inotify::{EventMask, Inotify, WatchMask};
-
-use crate::cmdline::Action;
 
 use super::Client;
 
@@ -39,6 +46,20 @@ pub struct ClientLogTracker<'a> {
     client: &'a Client,
     file: File,
     filename: PathBuf,
+}
+
+thread_local! {
+    static LOG_TRACKER_FD: Cell<Option<RawFd>> = const { Cell::new(None) };
+}
+
+extern "C" fn client_sighandler(sig: libc::c_int) {
+    if let Some(fd) = LOG_TRACKER_FD.take() {
+        unsafe {
+            libc::close(fd);
+        }
+    }
+    // not using tracing in signal handlers
+    eprintln!("interrupted ({:?})", Signal(sig));
 }
 
 impl<'a> ClientLogTracker<'a> {
@@ -55,14 +76,29 @@ impl<'a> ClientLogTracker<'a> {
     pub fn log(&mut self) -> Result<()> {
         let mut buf = vec![0; 1024];
         let mut ino = Inotify::init()?;
+        LOG_TRACKER_FD.replace(Some(ino.as_raw_fd()));
+
         ino.watches()
             .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
         let mut refresh = false;
 
+        let _drop_guard = OnDrop::new(|| {
+            SIGTERM.restore().unwrap();
+            SIGINT.restore().unwrap();
+            LOG_TRACKER_FD.take();
+        });
+        SIGTERM.set_handler(client_sighandler)?;
+        SIGINT.set_handler(client_sighandler)?;
+
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
             io::copy(&mut self.file, &mut stdout())?;
-            for event in ino.read_events_blocking(&mut buf)? {
+
+            for event in match ino.read_events_blocking(&mut buf) {
+                Ok(event) => event,
+                Err(_) if LOG_TRACKER_FD.get().is_none() => return Ok(()),
+                Err(err) => return Err(err.into()),
+            } {
                 refresh = event.mask.contains(EventMask::CLOSE_WRITE);
                 tracing::trace!(?event, refresh, "event received");
             }
@@ -81,6 +117,11 @@ impl<'a> ClientLogTracker<'a> {
                     self.file = File::open(new_file)?;
 
                     ino = Inotify::init()?;
+                    let old = LOG_TRACKER_FD.replace(Some(ino.as_raw_fd()));
+                    if old.is_none() {
+                        /* signal occured whilst replacing file */
+                        return Ok(());
+                    }
                     ino.watches()
                         .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
                 } else {
@@ -93,10 +134,24 @@ impl<'a> ClientLogTracker<'a> {
 
     #[cfg(not(target_os = "linux"))]
     pub fn log(&mut self) -> Result<()> {
+        let _drop_guard = OnDrop::new(|| {
+            SIGTERM.restore().unwrap();
+            SIGINT.restore().unwrap();
+            LOG_TRACKER_FD.take();
+        });
+
+        SIGTERM.set_handler(client_sighandler)?;
+        SIGINT.set_handler(client_sighandler)?;
+        LOG_TRACKER_FD.replace(Some(self.file.as_raw_fd()));
+
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
             for _ in 0..5 {
-                io::copy(&mut self.file, &mut stdout())?;
+                match io::copy(&mut self.file, &mut stdout()) {
+                    Ok(_) => (),
+                    Err(_) if LOG_TRACKER_FD.get().is_none() => return Ok(()),
+                    Err(err) => return Err(err.into()),
+                };
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
             if let Some(new_file) = self
@@ -110,6 +165,11 @@ impl<'a> ClientLogTracker<'a> {
                 self.filename = new_file.clone();
                 tracing::trace!(file = ?new_file, "new log-file detected");
                 self.file = File::open(new_file)?;
+                let old = LOG_TRACKER_FD.replace(Some(self.file.as_raw_fd()));
+                if old.is_none() {
+                    /* signal occured whilst replacing file */
+                    return Ok(());
+                }
             }
         }
     }

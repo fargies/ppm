@@ -209,7 +209,7 @@ impl Monitor {
         *self.tid.lock().unwrap() = Some(gettid());
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
-            sig.set_handler(guard_sighandler as *const () as usize)?;
+            sig.set_handler(guard_sighandler)?;
         }
         sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| {
@@ -500,7 +500,7 @@ mod tests {
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM;
 
         for sig in &sigset {
-            sig.set_handler(guard_sighandler as *const () as usize)?;
+            sig.set_handler(guard_sighandler)?;
         }
 
         sigset.block()?;

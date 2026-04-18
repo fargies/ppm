@@ -102,8 +102,20 @@ impl Signal {
     }
 
     #[tracing::instrument(level = "TRACE", err)]
-    pub fn set_handler(&self, handler: usize) -> Result<()> {
-        let ret = unsafe { libc::signal(self.0, handler) };
+    pub fn set_handler(&self, handler: extern "C" fn(libc::c_int)) -> Result<()> {
+        let ret = unsafe { libc::signal(self.0, handler as *const () as usize) };
+        libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
+    }
+
+    #[tracing::instrument(level = "TRACE", err)]
+    pub fn restore(&self) -> Result<()> {
+        let ret = unsafe { libc::signal(self.0, libc::SIG_DFL) };
+        libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
+    }
+
+    #[tracing::instrument(level = "TRACE", err)]
+    pub fn ignore(&self) -> Result<()> {
+        let ret = unsafe { libc::signal(self.0, libc::SIG_IGN) };
         libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
     }
 }
@@ -243,7 +255,7 @@ impl SignalSet {
     #[tracing::instrument(level = "TRACE")]
     pub fn restore(&self) -> Result<()> {
         for sig in self {
-            sig.set_handler(libc::SIG_DFL)
+            sig.restore()
                 .inspect_err(|err| tracing::error!(?sig, ?err, "failed to reset handler"))?;
         }
         self.unblock()
@@ -357,7 +369,7 @@ mod tests {
         let sigset = SignalSet::empty() + SIGALRM;
         sigset.block()?;
         for sig in &sigset {
-            sig.set_handler(guard_sighandler as *const () as usize)?;
+            sig.set_handler(guard_sighandler)?;
         }
 
         #[cfg(target_os = "linux")]
