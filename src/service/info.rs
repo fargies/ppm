@@ -23,7 +23,7 @@
 
 use crate::utils::serializers::{self, tabled::TDisplay};
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tabled::{Tabled, derive::display};
 
 use super::{
@@ -60,6 +60,10 @@ pub struct Info {
     #[serde(default)]
     #[tabled(rename = "\u{2620}")]
     pub crashed: usize,
+    /// Next restart interval count
+    #[serde(default)]
+    #[tabled(skip)]
+    pub throttle: usize,
 }
 
 impl Default for Info {
@@ -72,6 +76,7 @@ impl Default for Info {
             end_time: None,
             restarts: 0,
             crashed: 0,
+            throttle: 0,
         }
     }
 }
@@ -149,6 +154,20 @@ impl Info {
             ),
         }
     }
+
+    pub fn uptime(&self) -> Option<Duration> {
+        if let Some(end_time) = self.end_time {
+            self.start_time
+                .map(|start_time| end_time.duration_since(start_time))
+        } else {
+            match self.status {
+                Status::Running | Status::Stopped => {
+                    self.start_time.map(|start_time| start_time.elapsed())
+                }
+                _ => None,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -157,7 +176,7 @@ mod tests {
 
     #[test]
     fn serde() {
-        let data = "active: true\nstatus: Created\nrestarts: 0\ncrashed: 0\n";
+        let data = "active: true\nstatus: Created\nrestarts: 0\ncrashed: 0\nthrottle: 0\n";
         let info = Info::default();
         assert_eq!(data, serde_yaml_ng::to_string(&info).unwrap());
         assert_eq!(serde_yaml_ng::from_str::<Info>(data).unwrap(), info);

@@ -42,18 +42,10 @@ pub fn info_status_str(status: &Status) -> String {
     }
 }
 
-pub fn info_duration_str(end_time: &Option<Instant>, info: &Info) -> String {
-    (if let Some(end_time) = end_time {
-        info.start_time.map(|start_time| end_time.duration_since(start_time))
-    } else {
-        match info.status {
-            Status::Running | Status::Stopped => info
-                .start_time.map(|start_time| start_time.elapsed()),
-            _ => None,
-        }
-    })
-    .map(|d| Duration::from_secs(d.as_secs()).to_string())
-    .unwrap_or_else(String::new)
+pub fn info_duration_str(_: &Option<Instant>, info: &Info) -> String {
+    info.uptime()
+        .map(|d| Duration::from_secs(d.as_secs()).to_string())
+        .unwrap_or_default()
 }
 
 pub fn bytes_str(value: &u64) -> String {

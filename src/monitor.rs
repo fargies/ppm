@@ -138,10 +138,12 @@ impl Monitor {
         while let Some((pid, status)) = waitpid(pid, false) {
             count += 1;
             if let Some(service) = self.find_by_pid(pid) {
-                if let Status::Crashed = service.set_terminated(pid, status) {
+                let is_crashed = matches!(service.set_terminated(pid, status), Status::Crashed);
+                let throttle = service.update_throttle(self.uptime_slices(&service), is_crashed);
+                if is_crashed {
                     self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
                         id: service.id,
-                        instant: self.next_restart(&service.info()),
+                        instant: self.next_restart(&service.info(), throttle),
                     });
                 }
             } else {
@@ -151,9 +153,18 @@ impl Monitor {
         count
     }
 
-    fn next_restart(&self, info: &Info) -> Instant {
-        info.end_time.unwrap_or_else(Instant::now)
-            + self.restart_interval * (1 << info.crashed.saturating_sub(1))
+    fn next_restart(&self, info: &Info, throttle: usize) -> Instant {
+        info.end_time.unwrap_or_else(Instant::now) + self.restart_interval * throttle as u32
+    }
+
+    /// Service uptime in [Monitor::restart_interval] slices
+    fn uptime_slices(&self, service: &Service) -> usize {
+        service
+            .info()
+            .uptime()
+            .unwrap_or_default()
+            .div_duration_f32(self.restart_interval)
+            .floor() as usize
     }
 
     #[tracing::instrument(skip(self))]
@@ -353,6 +364,7 @@ impl Monitor {
         /* don't wake, worst case there'll be a spurious wakeup */
         self.scheduler.remove(&service.id);
         service.stop();
+        service.update_throttle(self.uptime_slices(service), false);
     }
 
     /// Reschedule a service
@@ -565,6 +577,45 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().restarts > 1).expect("not restarted");
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn restart_throttle() -> Result<()> {
+        let mon = Arc::new(Monitor {
+            restart_interval: std::time::Duration::from_millis(100),
+            ..Default::default()
+        });
+        let service = mon.insert(Service::new("test_restart", Command::new("sleep", ["300"])));
+
+        let join_handle = {
+            let mon = Arc::clone(&mon);
+            std::thread::spawn(move || mon.run())
+        };
+        let _drop_guard = kill_on_drop(join_handle);
+
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
+        wait_for!(service.info().restarts >= 2).expect("not restarted");
+        assert_eq!(service.info().throttle, 1);
+
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
+        wait_for!(service.info().restarts >= 3).expect("not restarted");
+        assert_eq!(service.info().throttle, 2);
+
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
+        wait_for!(service.info().restarts >= 4).expect("not restarted");
+        assert_eq!(service.info().throttle, 4);
+
+        wait_for!(service.info().pid.is_some()).expect("not started");
+        std::thread::sleep(std::time::Duration::from_millis(100) * 4 * 2);
+        Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
+        wait_for!(service.info().restarts >= 5).expect("not restarted");
+        assert_eq!(service.info().throttle, 1);
 
         Ok(())
     }

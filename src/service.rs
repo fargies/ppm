@@ -337,7 +337,7 @@ impl Service {
 
     /// Set service as [Status::Crashed]
     ///
-    /// Must be called from [Monitor]
+    /// Must be called from [crate::monitor::Monitor]
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_crashed(&self) {
         let mut guard = self._info.lock().unwrap();
@@ -346,7 +346,7 @@ impl Service {
 
     /// Set service as [Status::Finished]
     ///
-    /// Must be called from [Monitor]
+    /// Must be called from [crate::monitor::Monitor]
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_finished(&self) {
         let mut guard = self._info.lock().unwrap();
@@ -355,7 +355,7 @@ impl Service {
 
     /// Set service as [Status::Stopped]
     ///
-    /// Must be called from [Monitor]
+    /// Must be called from [crate::monitor::Monitor]
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_stopped(&self) {
         let mut guard = self._info.lock().unwrap();
@@ -364,7 +364,7 @@ impl Service {
 
     /// Set service as [Status::Running]
     ///
-    /// Must be called from [Monitor]
+    /// Must be called from [crate::monitor::Monitor]
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self))]
     pub fn set_running(&self, pid: pid_t) {
         let mut guard = self._info.lock().unwrap();
@@ -381,6 +381,24 @@ impl Service {
 
     pub fn update_stats(&self, stats: Stats) {
         *self._stats.lock().unwrap() = Arc::new(stats);
+    }
+
+    /// Update the restart throttle
+    ///
+    /// - `last_uptime` is in [crate::monitor::Monitor::restart_interval] slices
+    #[tracing::instrument(skip(self), ret(level = "DEBUG"))]
+    pub fn update_throttle(&self, last_uptime: usize, is_crashed: bool) -> usize {
+        let mut guard = self._info.lock().unwrap();
+        let value = match is_crashed {
+            true => guard
+                .throttle
+                .saturating_sub(last_uptime >> 1)
+                .saturating_mul(2),
+            false => guard.throttle.saturating_sub(last_uptime >> 1),
+        }
+        .max(1);
+        Arc::make_mut(&mut guard).throttle = value;
+        value
     }
 }
 
