@@ -27,7 +27,10 @@ use std::{
 };
 
 use anyhow::Result;
-use ppm::utils::OnDrop;
+use ppm::utils::{
+    OnDrop,
+    libc::{Fcntl, FdFlags},
+};
 use serial_test::file_serial;
 
 mod utils;
@@ -213,7 +216,16 @@ mod tests {
 
         assert!(
             ppm()
-                .args(["add", "--name", "test", "--", "echo", "world"])
+                .args([
+                    "add",
+                    "--name",
+                    "test",
+                    "--env",
+                    "RUST_LOG=",
+                    "--",
+                    "echo",
+                    "world"
+                ])
                 .status()?
                 .success(),
             "failed to add service"
@@ -221,7 +233,6 @@ mod tests {
 
         wait_for!(
             log_dir
-                .as_path()
                 .read_dir()?
                 .filter(|f| f
                     .as_ref()
@@ -231,15 +242,20 @@ mod tests {
         )
         .context("log file not created")?;
 
-        let out = str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)?.to_string();
-        assert_eq!(out, String::from("world\n"));
+        wait_for!(
+            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\n",
+            "value: {:?}",
+            ppm().args(["log", "test"]).output()?.stdout
+        )?;
 
         assert!(
             ppm().args(["restart", "test"]).status()?.success(),
             "failed to restart service"
         );
         wait_for!(
-            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\nworld\n"
+            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\nworld\n",
+            "value: {:?}",
+            ppm().args(["log", "test"]).output()?.stdout
         )?;
 
         Ok(())
@@ -264,28 +280,62 @@ mod tests {
 
         assert!(
             ppm()
-                .args(["add", "--name", "test", "--", "echo", "world"])
+                .args([
+                    "add",
+                    "--name",
+                    "test",
+                    "--env",
+                    "RUST_LOG=",
+                    "--",
+                    "echo",
+                    "world"
+                ])
                 .status()?
                 .success(),
             "failed to add service"
         );
-        let mut tail = ppm().args(["log", "-f", "test"]).stdout(Stdio::piped()).spawn()?;
+        let mut tail = ppm()
+            .args(["log", "-f", "test"])
+            .stdout(Stdio::piped())
+            .spawn()?;
+        tail.stdout
+            .as_mut()
+            .expect("stdout not captured")
+            .add_flag(FdFlags::NONBLOCK)?;
         let mut buf = [0; 10];
-        wait_for!({
-            let n = tail.stdout.as_mut().expect("stdout not captured").read(&mut buf)?;
-            str::from_utf8(&buf[..n])? == "world\n"
-        }, Duration::from_secs(3), "failed to get tail: {}", str::from_utf8(&buf)?)?;
+        wait_for!(
+            {
+                let n = tail
+                    .stdout
+                    .as_mut()
+                    .expect("stdout not captured")
+                    .read(&mut buf)?;
+                str::from_utf8(&buf[..n])? == "world\n"
+            },
+            Duration::from_secs(3),
+            "failed to get tail: {}",
+            str::from_utf8(&buf)?
+        )?;
         assert!(
             ppm().args(["restart", "test"]).status()?.success(),
             "failed to restart service"
         );
 
         buf.fill(0);
-        wait_for!({
-            let n = tail.stdout.as_mut().expect("stdout not captured").read(&mut buf)?;
-            str::from_utf8(&buf[..n])? == "world\n"
-        }, Duration::from_secs(3), "failed to get tail: {}", str::from_utf8(&buf)?)?;
-
+        wait_for!(
+            {
+                let n = tail
+                    .stdout
+                    .as_mut()
+                    .expect("stdout not captured")
+                    .read(&mut buf)?;
+                str::from_utf8(&buf[..n])? == "world\n"
+            },
+            Duration::from_secs(3),
+            "failed to get tail: {}",
+            str::from_utf8(&buf)?
+        )?;
+        eprintln!("killing tail");
         unsafe { libc::kill(tail.id() as i32, libc::SIGTERM) };
         tail.wait()?;
         Ok(())
