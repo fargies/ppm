@@ -1,3 +1,45 @@
+## [1.5.0] - 2026-05-13
+
+### 🚀 Features
+
+- Proper log client shutdown
+- Reduce the exponential back-off when service runs for some time
+
+### 🐛 Bug Fixes
+
+- Update cliff config
+- For OneOrMany serde implementation
+- Fix instant/systime conversion test
+- Fix instant issue
+- Cli tests fixes and debug
+
+### 🚜 Refactor
+
+- Serde serializers cleanup
+- Use an internal lib
+
+### 📚 Documentation
+
+- Add badges and sponsoring links
+- Add some todos
+
+### 🎨 Styling
+
+- Run clippy
+- Run clippy
+
+### 🧪 Testing
+
+- Add tests
+- Add some tests
+- Add some tests
+- Add some log tracking tests
+
+### ⚙️ Miscellaneous Tasks
+
+- *(CI)* Working on CI
+- *(CI)* Working on coverage
+
 ## [1.4.3] - 2026-03-02
 
 ### 🚀 Features
