@@ -186,7 +186,7 @@ impl Server {
                     serde_json::to_writer(
                         stream,
                         &ActionResult::Ok(wrap_map_iterator(
-                            [(service.id, service.stats())].into_iter(),
+                            [(service.id, service.stats())],
                         )),
                     )?
                 } else {
