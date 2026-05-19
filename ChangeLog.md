@@ -1,3 +1,32 @@
+## [1.5.3] - 2026-05-19
+
+### 📚 Documentation
+
+- Adding some Docker releated docs
+
+### ⚙️ Miscellaneous Tasks
+
+- Update rev
+
+## [1.5.2] - 2026-05-19
+
+### 🚀 Features
+
+- Adding daemon logs
+
+### 🐛 Bug Fixes
+
+- Fix release artifacts name
+- Cleanup release recipe
+
+### 📚 Documentation
+
+- Add some docstrings
+
+### ⚙️ Miscellaneous Tasks
+
+- Adding CI release recipe
+
 ## [1.5.0] - 2026-05-13
 
 ### 🚀 Features
