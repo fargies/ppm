@@ -48,23 +48,32 @@ pub enum Action {
     /// Start the daemon
     #[command(skip)]
     List,
-    /// Dump info (aliases: list, ls, status)
-    #[clap(aliases = ["list", "ls", "status"])]
+    /// Dump info
+    #[clap(visible_aliases = ["list", "ls", "status"])]
     Info,
-    /// Restart the given service (aliases: start)
-    #[clap(alias = "start")]
-    Restart { service: String },
-    /// Stop (terminate) the given service (aliases: terminate)
-    #[clap(alias = "terminate")]
-    Stop { service: String },
-    /// Reschedule a service, flag as active and reschedule (aliases: schedule)
-    #[clap(alias = "schedule")]
-    Reschedule { service: String },
-    /// Dump running configuration (aliases: show-config, config)
-    #[clap(aliases=["show-config", "config"])]
+    /// Restart the given service
+    #[clap(visible_alias = "start")]
+    Restart {
+        /// service id or name
+        service: String,
+    },
+    /// Stop (terminate) the given service
+    #[clap(visible_alias = "terminate")]
+    Stop {
+        /// service id or name
+        service: String,
+    },
+    /// Reschedule a service, flag as active and reschedule
+    #[clap(visible_alias = "schedule")]
+    Reschedule {
+        /// service id or name
+        service: String,
+    },
+    /// Dump running configuration
+    #[clap(visible_aliases=["show-config", "config"])]
     ShowConfiguration,
-    /// Add a new service (aliases: add-service)
-    #[clap(aliases=["add-service"])]
+    /// Add a new service
+    #[clap(visible_aliases=["add-service"])]
     Add {
         /// Service name
         #[clap(long, short)]
@@ -82,12 +91,18 @@ pub enum Action {
         #[clap(last = true)]
         command: Vec<String>,
     },
-    /// Stop and remove a service (aliases: rm, remove-service)
-    #[clap(aliases=["rm", "remove-service"])]
-    Remove { service: String },
-    /// Get statistics on a service (aliases: statistics, details)
-    #[clap(aliases=["statistics", "details"])]
-    Stats { service: Option<String> },
+    /// Stop and remove a service
+    #[clap(visible_aliases=["rm", "remove-service"])]
+    Remove {
+        /// service id or name
+        service: String,
+    },
+    /// Get statistics on a service
+    #[clap(visible_aliases=["statistics", "details"])]
+    Stats {
+        /// service id or name
+        service: Option<String>,
+    },
     /// Get statsics from the daemon process
     ///
     /// Used by `statistics` command from cli
@@ -99,7 +114,7 @@ pub enum Action {
 
     /// Show service logs
     Log {
-        /// Service to show logs from
+        /// service id or name to show logs from, use "ppm-daemon" to see PPM Daemon logs
         service: String,
 
         /// Number of lines to show
