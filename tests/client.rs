@@ -263,6 +263,53 @@ mod tests {
 
     #[test]
     #[file_serial(server)]
+    fn cli_daemon_logs() -> Result<()> {
+        let log_dir = MkTemp::dir("cli_daemon_logs")?;
+        let mut config = MkTemp::file("cli_daemon_logs")?;
+        config.write_all(format!("logger: {{ path: {:?} }}", log_dir.as_path()).as_bytes())?;
+
+        let server = ppm()
+            .env("RUST_LOG", "info")
+            .arg("daemon")
+            .arg(format!(
+                "--config={}",
+                AsRef::<Path>::as_ref(&config).display()
+            ))
+            .spawn()?;
+        let _server_guard = OnDrop::new(|| kill_server(server));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert!(
+            ppm()
+                .args(["add", "--name", "test", "--", "echo", "world"])
+                .status()?
+                .success(),
+            "failed to add service"
+        );
+
+        wait_for!(
+            log_dir
+                .read_dir()?
+                .filter(|f| f
+                    .as_ref()
+                    .is_ok_and(|f| f.file_name().to_string_lossy().starts_with("ppm-daemon-")))
+                .count()
+                == 1
+        )
+        .context("log file not created")?;
+
+        wait_for!(
+            !ppm()
+                .args(["log", "ppm-daemon"])
+                .output()?
+                .stdout
+                .is_empty()
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    #[file_serial(server)]
     fn cli_log_tracker() -> Result<()> {
         let log_dir = MkTemp::dir("cli_log_tracker")?;
         let mut config = MkTemp::file("cli_log_tracker")?;

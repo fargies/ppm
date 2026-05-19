@@ -25,14 +25,23 @@ use anyhow::Result;
 use dirs::{config_local_dir, home_dir};
 use ppm::{
     cmdline::{self, DEFAULT_ADDR},
-    monitor::Monitor,
-    utils::{LoadFromFile, tracing_utils::tracing_init},
+    monitor::{
+        Monitor,
+        logger::{LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME},
+    },
+    utils::{
+        LoadFromFile,
+        tracing_utils::{make_fmt, make_subscriber, tracing_init},
+    },
 };
 use std::{
     env::{self, current_dir},
     net::SocketAddr,
     path::PathBuf,
     sync::Arc,
+};
+use tracing_subscriber::{
+    layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 #[tracing::instrument(ret)]
@@ -86,6 +95,17 @@ fn main() -> Result<()> {
     } else {
         Monitor::default()
     });
+    let _server_logger = match monitor.logger.as_ref() {
+        Some(logger) => {
+            let out = Arc::new(logger.make_pipe(LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME)?.0);
+            Some(
+                make_subscriber(std::io::stdout, Some("info"))
+                    .with(make_fmt().with_ansi(false).with_writer(out))
+                    .set_default(),
+            )
+        }
+        None => None,
+    };
 
     let server = cmdline::Server::new(Arc::clone(&monitor), addr)?;
     std::thread::Builder::new()

@@ -27,9 +27,9 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt::Debug,
     fs::create_dir_all,
+    io::PipeWriter,
     os::fd::{AsRawFd, RawFd},
     path::PathBuf,
-    process::Stdio,
     sync::{Arc, Mutex},
     thread::JoinHandle,
 };
@@ -37,7 +37,7 @@ use std::{
 use dashmap::DashMap;
 
 use crate::{
-    service::{Service, ServiceId},
+    service::{SERVICE_ID_INVALID, ServiceId},
     utils::{
         Buffer,
         debug::DebugIter,
@@ -53,6 +53,8 @@ mod logfile;
 use logfile::{LOGFILE_MAX_FILES_DEFAULT, LOGFILE_MAX_SIZE_DEFAULT, LogFile};
 
 const LOGGER_DEFAULT_PATH: &str = "/var/log/";
+pub const LOGGER_DAEMON_NAME: &str = "ppm-daemon";
+pub const LOGGER_DAEMON_ID: ServiceId = SERVICE_ID_INVALID;
 
 type LogMap = Arc<DashMap<ServiceId, LogPump>>;
 
@@ -180,12 +182,15 @@ impl Logger {
         }
     }
 
-    pub fn make_pipe(&self, service: &Service) -> Result<(Stdio, Stdio)> {
-        let mut pump = match self.logs.remove(&service.id) {
+    pub fn make_pipe<S>(&self, id: ServiceId, name: S) -> Result<(PipeWriter, PipeWriter)>
+    where
+        S: Into<String>,
+    {
+        let mut pump = match self.logs.remove(&id) {
             Some((_, pump)) => pump,
             None => LogPump::from(LogFile::new_with_limits(
                 &self.path,
-                &service.name,
+                name,
                 self.max_file_size,
                 self.max_files,
             )),
@@ -193,7 +198,7 @@ impl Logger {
         // ensure log file can be created, don't create the pump otherwise
         pump.output.rotate()?;
         pump.make_input().inspect(|_| {
-            self.logs.insert(service.id, pump);
+            self.logs.insert(id, pump);
             self.wake();
         })
     }

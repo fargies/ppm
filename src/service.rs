@@ -209,7 +209,8 @@ impl Service {
         let mut guard = self._info.lock().unwrap();
         let (out, err) = logger
             .into()
-            .and_then(|l| l.make_pipe(self).ok())
+            .and_then(|l| l.make_pipe(self.id, &self.name).ok())
+            .map(|(out, err)| (out.into(), err.into()))
             .unwrap_or_else(|| (process::Stdio::inherit(), process::Stdio::inherit()));
 
         let mut cmd = process::Command::new(launcher);
