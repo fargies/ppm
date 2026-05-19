@@ -13,37 +13,37 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: coverage-lsp-linux-amd64.tar.gz
+            name: partner-pm-linux-amd64.tar.gz
             arch: x86_64
 
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            name: coverage-lsp-linux-arm64.tar.gz
+            name: partner-pm-linux-arm64.tar.gz
             arch: aarch64
 
           - target: x86_64-apple-darwin
             os: macOS-latest
-            name: coverage-lsp-darwin-amd64.tar.gz
+            name: partner-pm-darwin-amd64.tar.gz
             arch: x86_64
 
           - target: aarch64-apple-darwin
             os: macOS-latest
-            name: coverage-lsp-darwin-arm64.tar.gz
+            name: partner-pm-darwin-arm64.tar.gz
             arch: aarch64
 
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: coverage-lsp-windows-amd64.zip
+            name: partner-pm-windows-amd64.zip
             arch: x86_64
 
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: coverage-lsp-linux-musl-amd64.tar.gz
+            name: partner-pm-linux-musl-amd64.tar.gz
             arch: x86_64
 
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            name: coverage-lsp-linux-musl-arm64.tar.gz
+            name: partner-pm-linux-musl-arm64.tar.gz
             arch: aarch64
 
     runs-on: ${{ matrix.os }}
