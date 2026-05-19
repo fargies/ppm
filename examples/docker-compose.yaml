@@ -1,0 +1,31 @@
+name: ppm
+
+services:
+  # Integrated service, uses external configs and volumes
+  debian:
+    build:
+      args:
+        VERSION: v1.5.2
+      dockerfile_inline: |
+        FROM debian:stable-slim
+
+        ARG VERSION FILE=partner-pm-linux-amd64.tar.gz
+
+        ADD "https://github.com/fargies/ppm/releases/download/$${VERSION}/$${FILE}" .
+        RUN tar xf $${FILE} -C /usr/bin && rm $${FILE}
+
+        ENTRYPOINT [ "ppm-daemon" ]
+    environment:
+      PPM_CONFIG: /ppm_config
+    volumes:
+      - ppm_logs:/var/log
+    configs:
+      - ppm_config
+
+configs:
+  ppm_config:
+    content: |
+      services: [{ name: test, command: { path: date }, schedule: "*/1 * * * * *" }]
+      logger: { path: /var/log }
+volumes:
+  ppm_logs:

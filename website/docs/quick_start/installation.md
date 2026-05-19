@@ -1,5 +1,36 @@
 # Installation
 
+## In a Dockerfile
+
+To ship PPM in a container, here's an example installation in a [Dockerfile](https://docs.docker.com/reference/dockerfile/)
+using a prebuilt binary:
+
+```docker
+FROM debian:stable-slim
+
+ARG VERSION=v1.5.2 FILE=partner-pm-linux-amd64.tar.gz
+
+ADD https://github.com/fargies/ppm/releases/download/$${VERSION}/$${FILE} .
+RUN tar xf $${FILE} -C /usr/bin && rm $${FILE}
+
+RUN <<EOF
+echo '
+services:
+  - name: test
+    command:
+      path: date
+    schedule: "*/1 * * * * *"
+logger: { path: /var/log }
+' > /ppm_config
+EOF
+
+ENTRYPOINT [ "ppm", "daemon", "--config", "/ppm_config" ]
+```
+
+Some additional examples using [docker-compose.yaml](https://docs.docker.com/compose/)
+are available in the [examples](https://github.com/fargies/ppm/blob/master/examples)
+source directory.
+
 ## On Debian
 
 To install PPM on a [Debian](https://www.debian.org/) Linux distribution:
@@ -27,29 +58,4 @@ Server = https://www.gremory.org/gitea/api/packages/fargie_s/arch/core/x86_64
 " >> /etc/pacman.conf
 
 pacman -Sy partner-pm
-```
-
-## In a Dockerfile
-
-To ship PPM in a container, here's an example installation in a [Dockerfile](https://docs.docker.com/reference/dockerfile/):
-
-```docker
-FROM debian:stable
-
-# Environment variable for ppm-daemon to find its configuration file
-ENV PPM_CONFIG=/app/data/service.yml
-
-RUN apt-get update && apt-get install -y curl && apt-get clean
-
-RUN curl https://www.gremory.org/gitea/api/packages/fargie_s/debian/repository.key -o /etc/apt/keyrings/gitea-fargie_s.asc
-RUN echo "deb [signed-by=/etc/apt/keyrings/gitea-fargie_s.asc] https://www.gremory.org/gitea/api/packages/fargie_s/debian trixie main" | tee -a /etc/apt/sources.list.d/gitea.list
-
-RUN apt-get update && \
-    apt-get install -y partner-pm && \
-    apt-get autoremove && apt-get clean
-
-COPY . /app
-WORKDIR /app
-
-ENTRYPOINT [ "/usr/bin/ppm-daemon" ]
 ```
