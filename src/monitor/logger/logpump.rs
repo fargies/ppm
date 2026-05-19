@@ -22,9 +22,8 @@
 
 use anyhow::{Context, Result};
 use std::{
-    io::{ErrorKind, PipeReader, Read, Write, pipe, stdout},
+    io::{ErrorKind, PipeReader, PipeWriter, Read, Write, pipe, stdout},
     os::fd::{AsRawFd, RawFd},
-    process::Stdio,
 };
 
 use crate::{
@@ -141,7 +140,7 @@ impl LogPump {
         }
     }
 
-    pub fn make_input(&mut self) -> Result<(Stdio, Stdio)> {
+    pub fn make_input(&mut self) -> Result<(PipeWriter, PipeWriter)> {
         let (reader_out, writer_out) = pipe().context("failed to create pipe")?;
         reader_out.add_flag(FdFlags::NONBLOCK)?;
         let (reader_err, writer_err) = pipe().context("failed to create pipe")?;
@@ -155,7 +154,7 @@ impl LogPump {
         self.input.push(reader_out);
         self.input.push(reader_err);
 
-        Ok((writer_out.into(), writer_err.into()))
+        Ok((writer_out, writer_err))
     }
 
     pub fn has_buffer(&self) -> bool {

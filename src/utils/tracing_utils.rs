@@ -24,6 +24,8 @@
 
 use anyhow::Result;
 use std::{env::var, io::IsTerminal, str::FromStr};
+use tracing::Subscriber;
+use tracing_subscriber::{fmt, layer::SubscriberExt, registry::LookupSpan};
 
 pub fn is_log_color<T>(output: &T) -> bool
 where
@@ -55,33 +57,32 @@ where
     }
 }
 
-/// Initialize the tracing framework with sane defaults
-///
-/// ## Configuration from env
-///
-/// - LOG_SRC_FILE:    show source files (default `cfg!(test)`)
-/// - LOG_THREAD_ID:   show thread ids (default `cfg!(test)`)
-/// - LOG_THREAD_NAME: show thread names (default `false`)
-/// - LOG_TARGET:      show log targets (default `false`)
-/// - LOG_COLOR:       colorize logs (default `auto`)
-/// - RUST_LOG | LOG_DIRECTIVE: log directive (default: `error`)
-pub fn tracing_init<F, W>(output: F, directive: Option<&str>) -> Result<()>
+pub fn make_fmt<S>() -> fmt::Layer<S>
 where
-    F: Fn() -> W + 'static + Send + Sync,
-    W: std::io::Write + std::io::IsTerminal,
+    S: Subscriber,
 {
-    use tracing::Level;
-    use tracing_subscriber::{
-        EnvFilter, Registry, filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-    };
-
     let log_src_file = get_var("LOG_SRC_FILE").unwrap_or(cfg!(test));
-    let fmt = fmt::layer()
+
+    fmt::layer()
         .with_thread_ids(get_var("LOG_THREAD_ID").unwrap_or(cfg!(test)))
         .with_thread_names(get_var("LOG_THREAD_NAME").unwrap_or(false))
         .with_file(log_src_file)
         .with_line_number(log_src_file)
         .with_target(get_var("LOG_TARGET").unwrap_or(false))
+}
+
+pub fn make_subscriber<F, W>(
+    output: F,
+    directive: Option<&str>,
+) -> impl SubscriberExt + for<'a> LookupSpan<'a>
+where
+    F: Fn() -> W + 'static + Send + Sync,
+    W: std::io::Write + std::io::IsTerminal,
+{
+    use tracing::Level;
+    use tracing_subscriber::{EnvFilter, Registry, filter::Directive, layer::SubscriberExt};
+
+    let fmt = make_fmt()
         .with_ansi(is_log_color(&output()))
         .with_writer(output);
 
@@ -98,7 +99,25 @@ where
                 )
                 .from_env_lossy(),
         )
-        .with(fmt) // thread debugging
-        .try_init()?;
+        .with(fmt)
+}
+
+/// Initialize the tracing framework with sane defaults
+///
+/// ## Configuration from env
+///
+/// - LOG_SRC_FILE:    show source files (default `cfg!(test)`)
+/// - LOG_THREAD_ID:   show thread ids (default `cfg!(test)`)
+/// - LOG_THREAD_NAME: show thread names (default `false`)
+/// - LOG_TARGET:      show log targets (default `false`)
+/// - LOG_COLOR:       colorize logs (default `auto`)
+/// - RUST_LOG | LOG_DIRECTIVE: log directive (default: `error`)
+pub fn tracing_init<F, W>(output: F, directive: Option<&str>) -> Result<()>
+where
+    F: Fn() -> W + 'static + Send + Sync,
+    W: std::io::Write + std::io::IsTerminal,
+{
+    use tracing_subscriber::util::SubscriberInitExt;
+    make_subscriber(output, directive).try_init()?;
     Ok(())
 }

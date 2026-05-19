@@ -34,7 +34,10 @@ use std::{
 };
 
 use crate::{
-    monitor::Monitor,
+    monitor::{
+        Monitor,
+        logger::{LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME},
+    },
     service::{Command, Service, ServiceId},
     utils::{InnerRef, wrap_map_iterator},
 };
@@ -145,6 +148,13 @@ impl Server {
             .or_else(|| monitor.find_by_name(service))
     }
 
+    fn is_daemon(service: &String) -> bool {
+        match service.parse::<ServiceId>() {
+            Ok(id) => id == LOGGER_DAEMON_ID,
+            Err(_) => service == LOGGER_DAEMON_NAME,
+        }
+    }
+
     #[tracing::instrument(fields(client = ?stream.peer_addr()?), skip(stream, monitor), err)]
     fn handle(stream: &TcpStream, monitor: Arc<Monitor>) -> Result<()> {
         let mut reader =
@@ -185,9 +195,7 @@ impl Server {
                         .with_context(|| format!("no such service \"{service}\""))?;
                     serde_json::to_writer(
                         stream,
-                        &ActionResult::Ok(wrap_map_iterator(
-                            [(service.id, service.stats())],
-                        )),
+                        &ActionResult::Ok(wrap_map_iterator([(service.id, service.stats())])),
                     )?
                 } else {
                     serde_json::to_writer(
@@ -262,10 +270,12 @@ impl Server {
                     .logger
                     .as_ref()
                     .ok_or(anyhow!("logger not enabled"))?;
-                let service = Server::find_service(monitor, &service)
+                let id = Server::find_service(monitor, &service)
+                    .map(|service| service.id)
+                    .or_else(|| Server::is_daemon(&service).then_some(LOGGER_DAEMON_ID))
                     .with_context(|| format!("no such service \"{service}\""))?;
 
-                serde_json::to_writer(stream, &ActionResult::Ok(logger.list_files(service.id)))?;
+                serde_json::to_writer(stream, &ActionResult::Ok(logger.list_files(id)))?;
             }
             Action::Log { .. } => unimplemented!("log command must be handled from client side"),
         }
