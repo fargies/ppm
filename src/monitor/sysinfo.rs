@@ -62,7 +62,7 @@ impl Default for Sysinfo {
 impl Sysinfo {
     #[tracing::instrument(skip(self, monitor))]
     pub fn update(&mut self, monitor: &Monitor) {
-        tracing::info!("updating stats");
+        tracing::debug!("updating stats");
         self.fetch(&monitor.services);
         self.update_services(&monitor.services);
 
