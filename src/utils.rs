@@ -50,6 +50,8 @@ pub use buffer::Buffer;
 
 pub mod tracing_utils;
 
+pub mod slices;
+
 #[cfg(test)]
 pub mod test_utils;
 #[cfg(test)]
@@ -117,5 +119,35 @@ impl<T> IntoArc<T> for &Arc<T> {
 impl<T> IntoArc<T> for T {
     fn into_arc(self) -> Arc<T> {
         Arc::new(self)
+    }
+}
+
+/// Add `then`/`then_mut` on any type
+///
+/// Convenient to configure/setup objects after construction
+pub trait Chain {
+    fn then<F>(self, fun: F) -> Self
+    where
+        F: FnOnce(&Self);
+    fn then_mut<F>(self, fun: F) -> Self
+    where
+        F: FnOnce(&mut Self);
+}
+
+impl<T> Chain for T {
+    fn then<F>(self, fun: F) -> Self
+    where
+        F: FnOnce(&Self),
+    {
+        fun(&self);
+        self
+    }
+
+    fn then_mut<F>(mut self, fun: F) -> Self
+    where
+        F: FnOnce(&mut Self),
+    {
+        fun(&mut self);
+        self
     }
 }

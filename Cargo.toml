@@ -68,12 +68,7 @@ serde_yaml_ng = "0.10.0"
 sysinfo = "0.37.2"
 tabled = { version = "0.20.0", features = ["ansi"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = [
-    "env-filter",
-    "local-time",
-    "time",
-    "tracing",
-] }
+tracing-subscriber = { version = "0.3.22", features = ["chrono", "env-filter",  "tracing"] }
 
 [dev-dependencies]
 ctor = "0.6.3"

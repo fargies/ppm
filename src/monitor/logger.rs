@@ -39,20 +39,21 @@ use dashmap::DashMap;
 use crate::{
     service::{SERVICE_ID_INVALID, ServiceId},
     utils::{
-        Buffer,
-        debug::DebugIter,
-        poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter},
-        serializers::human,
+        Buffer, Chain, debug::DebugIter, poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter}, serializers::human
     },
 };
 
 mod logpump;
 use logpump::LogPump;
 
+mod auto_date;
+use auto_date::AutoDate;
+
 mod logfile;
 use logfile::{LOGFILE_MAX_FILES_DEFAULT, LOGFILE_MAX_SIZE_DEFAULT, LogFile};
 
-const LOGGER_DEFAULT_PATH: &str = "/var/log/";
+const LOGGER_PATH_DEFAULT: &str = "/var/log/";
+const LOGGER_AUTO_DATE_DEFAULT: bool = true;
 pub const LOGGER_DAEMON_NAME: &str = "ppm-daemon";
 pub const LOGGER_DAEMON_ID: ServiceId = SERVICE_ID_INVALID;
 
@@ -61,9 +62,16 @@ type LogMap = Arc<DashMap<ServiceId, LogPump>>;
 #[derive(Deserialize)]
 #[serde(from = "LoggerOptions")]
 pub struct Logger {
+    /// Directory where to store log files
     pub path: Arc<PathBuf>,
+    /// Maximum number of files to rotate
     pub max_files: usize,
+    /// Maximum file size in bytes
+    ///
+    /// Files may go slighly above the maximum (lines are not truncated).
     pub max_file_size: u64,
+    /// Detect if a timestamp is required on each log file
+    pub auto_date: bool,
     logs: LogMap,
     poller: Mutex<PollerWriter>,
     join_handle: Option<JoinHandle<()>>,
@@ -80,7 +88,7 @@ impl Serialize for Logger {
             .path
             .as_os_str()
             .to_str()
-            .is_some_and(|v| v != LOGGER_DEFAULT_PATH)
+            .is_some_and(|v| v != LOGGER_PATH_DEFAULT)
         {
             map.serialize_entry("path", &self.path)?;
         }
@@ -101,6 +109,7 @@ pub struct LoggerOptions {
     max_files: usize,
     #[serde(with = "human::size")]
     max_file_size: u64,
+    auto_date: bool,
 }
 
 impl<T> From<T> for LoggerOptions
@@ -112,6 +121,7 @@ where
             path: value.into(),
             max_files: LOGFILE_MAX_FILES_DEFAULT,
             max_file_size: LOGFILE_MAX_SIZE_DEFAULT,
+            auto_date: LOGGER_AUTO_DATE_DEFAULT,
         }
     }
 }
@@ -119,9 +129,10 @@ where
 impl Default for LoggerOptions {
     fn default() -> Self {
         Self {
-            path: LOGGER_DEFAULT_PATH.into(),
+            path: LOGGER_PATH_DEFAULT.into(),
             max_files: LOGFILE_MAX_FILES_DEFAULT,
             max_file_size: LOGFILE_MAX_SIZE_DEFAULT,
+            auto_date: LOGGER_AUTO_DATE_DEFAULT,
         }
     }
 }
@@ -151,6 +162,7 @@ impl Logger {
         let (poller, tx) = Poller::new();
         let mut ret = Self {
             path: Arc::new(options.path),
+            auto_date: options.auto_date,
             logs: Default::default(),
             poller: Mutex::new(tx),
             max_files: options.max_files,
@@ -193,7 +205,7 @@ impl Logger {
                 name,
                 self.max_file_size,
                 self.max_files,
-            )),
+            )).then_mut(|p| if !self.auto_date { p.auto_date.disable(); })
         };
         // ensure log file can be created, don't create the pump otherwise
         pump.output.rotate()?;
@@ -333,7 +345,7 @@ mod tests {
     use super::*;
     use crate::{
         service::{Command, Service},
-        utils::{MkTemp, wait_for},
+        utils::{MkTemp, tracing_utils::TracingDateTime, wait_for},
     };
     use anyhow::Result;
     use serde_yaml_ng as yaml;
@@ -357,8 +369,11 @@ mod tests {
             logger.list_files(srv.id)
         )
         .expect("invalid log file count");
+
+        let date_time_len = TracingDateTime::get().len();
         wait_for!(
-            logger.list_files(srv.id).first().unwrap().metadata()?.len() == 6,
+            logger.list_files(srv.id).first().unwrap().metadata()?.len() as usize
+                == 6 + date_time_len,
             std::time::Duration::from_secs(3),
             "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
@@ -367,7 +382,8 @@ mod tests {
 
         srv.restart(&logger);
         wait_for!(
-            logger.list_files(srv.id).first().unwrap().metadata()?.len() == 12,
+            logger.list_files(srv.id).first().unwrap().metadata()?.len() as usize
+                == 12 + date_time_len * 2,
             std::time::Duration::from_secs(3),
             "invalid log size: {}",
             logger.list_files(srv.id).first().unwrap().metadata()?.len()
@@ -380,7 +396,7 @@ mod tests {
     #[test]
     fn serde() -> Result<()> {
         let logger: Logger = yaml::from_str("{}")?;
-        assert_eq!(&PathBuf::from(LOGGER_DEFAULT_PATH), logger.path.as_path());
+        assert_eq!(&PathBuf::from(LOGGER_PATH_DEFAULT), logger.path.as_path());
         let logger: Logger = yaml::from_str("path: /tmp")?;
         assert_eq!(&PathBuf::from("/tmp"), logger.path.as_path());
         let logger: Logger = yaml::from_str("path: /tmp\nmax_files: 30")?;
@@ -397,7 +413,7 @@ mod tests {
 
         let logger: Logger = yaml::from_str("{}")?;
         let logger: Logger = yaml::from_str(yaml::to_string(&logger)?.as_str())?;
-        assert_eq!(&PathBuf::from(LOGGER_DEFAULT_PATH), logger.path.as_path());
+        assert_eq!(&PathBuf::from(LOGGER_PATH_DEFAULT), logger.path.as_path());
         assert_eq!(LOGFILE_MAX_FILES_DEFAULT, logger.max_files);
         assert_eq!(LOGFILE_MAX_SIZE_DEFAULT, logger.max_file_size);
         Ok(())

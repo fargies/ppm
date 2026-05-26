@@ -7,3 +7,4 @@ services:
 logger:
   path: /tmp/ppm
   max_file_size: 20MiB
+  auto_date: true

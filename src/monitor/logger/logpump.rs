@@ -26,17 +26,16 @@ use std::{
     os::fd::{AsRawFd, RawFd},
 };
 
-use crate::{
-    monitor::logger::logfile::LogFile,
-    utils::{
-        Buffer,
-        libc::{Fcntl, FdFlags},
-    },
+use super::{LogFile, AutoDate };
+use crate::utils::{
+    Buffer,
+    libc::{Fcntl, FdFlags},
 };
 
 pub struct LogPump {
     pub input: Vec<PipeReader>,
     pub output: LogFile,
+    pub auto_date: AutoDate,
     buffer: Option<Buffer>,
 }
 
@@ -46,6 +45,7 @@ impl From<LogFile> for LogPump {
             input: Vec::with_capacity(2),
             output: value,
             buffer: None,
+            auto_date: AutoDate::default(),
         }
     }
 }
@@ -127,15 +127,21 @@ impl LogPump {
     ///
     ///Returns written bytes
     fn log(&mut self, buffer: &[u8]) -> usize {
-        match self.output.write(buffer) {
-            Ok(sz) => sz,
-            Err(err) => {
-                tracing::error!(?err, "failed to write log");
-                // forwarding messages to stdout
-                if let Err(err) = stdout().write_all(buffer) {
-                    tracing::error!(?err, "failed to forward message");
+        if let Some(line) = self.auto_date.take(buffer) {
+            let _ = self.output.write(line.as_bytes());
+            0
+        } else {
+            let buffer = self.auto_date.prepare(buffer);
+            match self.output.write(buffer) {
+                Ok(sz) => sz,
+                Err(err) => {
+                    tracing::error!(?err, "failed to write log");
+                    // forwarding messages to stdout
+                    if let Err(err) = stdout().write_all(buffer) {
+                        tracing::error!(?err, "failed to forward message");
+                    }
+                    buffer.len()
                 }
-                buffer.len()
             }
         }
     }

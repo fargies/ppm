@@ -100,7 +100,8 @@
             },
             { "type": "integer" }
           ]
-        }
+        },
+        "auto_date": { "type": "boolean" }
       }
     }
   }
