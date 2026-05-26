@@ -208,15 +208,11 @@ impl LogFile {
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<usize> {
-        self.rotate()
-            .and_then(|()| {
-                self.file
-                    .as_mut()
-                    .unwrap()
-                    .write(data)
-                    .map_err(anyhow::Error::new)
-            })
-            .inspect(|size| self.written += size)
+        self.rotate()?;
+
+        let size = self.file.as_mut().unwrap().write(data)?;
+        self.written += size;
+        Ok(size)
     }
 }
 

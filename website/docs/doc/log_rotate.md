@@ -33,6 +33,9 @@ logger:
 
   # Maximum file size before rotation occurs
   max_file_size: 20MiB
+
+  # Inject timestamps in logs
+  auto_date: true
 ```
 
 ### Option Details
@@ -49,6 +52,14 @@ logger:
 - max_file_size\
   The size threshold that triggers log rotation.\
   When the active log file reaches this size, a new log file is created.
+
+- auto_date\
+  Automatically prepend [RFC3339](https://datatracker.ietf.org/doc/html/rfc3339)
+  timestamps to each log line.\
+  When enabled, PPM inspects the first log line of each service and
+  automatically disables this feature if the output already appears to contain
+  timestamps matching the current time (based on year and `HH:` pattern
+  detection), preventing duplicate timestamps.
 
 **Note:** A log file may slightly exceed max_file_size to ensure the last
 buffered log line is fully written and not truncated.

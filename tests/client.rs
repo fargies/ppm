@@ -202,7 +202,13 @@ mod tests {
     fn cli_logs() -> Result<()> {
         let log_dir = MkTemp::dir("cli_logs")?;
         let mut config = MkTemp::file("cli_logs")?;
-        config.write_all(format!("logger: {{ path: {:?} }}", log_dir.as_path()).as_bytes())?;
+        config.write_all(
+            format!(
+                "logger: {{ path: {:?}, auto_date: false }}",
+                log_dir.as_path()
+            )
+            .as_bytes(),
+        )?;
 
         let server = ppm()
             .arg("daemon")
@@ -244,8 +250,8 @@ mod tests {
 
         wait_for!(
             str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\n",
-            "value: {:?}",
-            ppm().args(["log", "test"]).output()?.stdout
+            "value: {:}",
+            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)?
         )?;
 
         assert!(
@@ -254,8 +260,8 @@ mod tests {
         );
         wait_for!(
             str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)? == "world\nworld\n",
-            "value: {:?}",
-            ppm().args(["log", "test"]).output()?.stdout
+            "value: {:}",
+            str::from_utf8(&ppm().args(["log", "test"]).output()?.stdout)?
         )?;
 
         Ok(())
@@ -313,7 +319,13 @@ mod tests {
     fn cli_log_tracker() -> Result<()> {
         let log_dir = MkTemp::dir("cli_log_tracker")?;
         let mut config = MkTemp::file("cli_log_tracker")?;
-        config.write_all(format!("logger: {{ path: {:?} }}", log_dir.as_path()).as_bytes())?;
+        config.write_all(
+            format!(
+                "logger: {{ path: {:?}, auto_date: false }}",
+                log_dir.as_path()
+            )
+            .as_bytes(),
+        )?;
 
         let server = ppm()
             .arg("daemon")
