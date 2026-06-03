@@ -17,3 +17,4 @@
 - [] add mode to spawn service as container (having ppm in entry-point) CMD
 - [x] add daemon log-file (with rotate and config)
 - [] add hot-reload feature
+- [] fix log file naming, do not override existing files

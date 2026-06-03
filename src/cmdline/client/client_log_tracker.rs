@@ -103,30 +103,33 @@ impl<'a> ClientLogTracker<'a> {
                 tracing::trace!(?event, refresh, "event received");
             }
             if refresh {
-                if let Some(new_file) = self
-                    .client
-                    .invoke::<Vec<PathBuf>>(&Action::ListLogFiles {
-                        service: self.service.clone(),
-                    })?
-                    .last()
-                    && new_file != &self.filename
-                {
-                    tracing::debug!(file = ?new_file, "new log-file detected");
-                    refresh = false;
-                    self.filename = new_file.clone();
-                    self.file = File::open(new_file)?;
+                loop {
+                    if let Some(new_file) = self
+                        .client
+                        .invoke::<Vec<PathBuf>>(&Action::ListLogFiles {
+                            service: self.service.clone(),
+                        })?
+                        .last()
+                        && new_file != &self.filename
+                    {
+                        tracing::debug!(file = ?new_file, "new log-file detected");
+                        refresh = false;
+                        self.filename = new_file.clone();
+                        self.file = File::open(new_file)?;
 
-                    ino = Inotify::init()?;
-                    let old = LOG_TRACKER_FD.replace(Some(ino.as_raw_fd()));
-                    if old.is_none() {
-                        /* signal occured whilst replacing file */
-                        return Ok(());
+                        ino = Inotify::init()?;
+                        let old = LOG_TRACKER_FD.replace(Some(ino.as_raw_fd()));
+                        if old.is_none() {
+                            /* signal occured whilst replacing file */
+                            return Ok(());
+                        }
+                        ino.watches()
+                            .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
+                        break;
+                    } else {
+                        tracing::warn!("new log-file not detected");
+                        std::thread::sleep(std::time::Duration::from_secs(3));
                     }
-                    ino.watches()
-                        .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
-                } else {
-                    tracing::warn!("new log-file not detected");
-                    std::thread::sleep(std::time::Duration::from_secs(3));
                 }
             }
         }
