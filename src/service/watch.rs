@@ -63,11 +63,18 @@ impl Default for Watch {
 
 impl Watch {
     #[inline]
-    pub fn add(&mut self, path: &Path) {
-        self.paths.push(path.to_path_buf());
+    pub fn add<P>(&mut self, path: P)
+    where
+        P: Into<PathBuf>,
+    {
+        self.paths.push(path.into());
     }
 
-    pub fn is_excluded(&self, path: &Path) -> bool {
+    pub fn is_excluded<P>(&self, path: &P) -> bool
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = path.as_ref();
         !self.include.as_ref().is_some_and(|g| g.is_match(path))
             && (self.exclude.as_ref().is_some_and(|g| g.is_match(path))
                 || DEFAULT_EXCLUDE.is_match(path))
@@ -105,7 +112,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
         E: Error,
     {
         let mut watch = Watch::default();
-        watch.add(&PathBuf::from(v));
+        watch.add(v);
         Ok(watch)
     }
 
@@ -114,7 +121,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
         A: serde::de::SeqAccess<'de>,
     {
         let mut watch = Watch::default();
-        while let Some(value) = seq.next_element()? {
+        while let Some(value) = seq.next_element::<PathBuf>()? {
             watch.add(value);
         }
         Ok(watch)
@@ -167,7 +174,11 @@ impl Serialize for Watch {
         S: serde::Serializer,
     {
         if self.include.is_none() && self.exclude.is_none() && self.max_depth == DEFAULT_MAX_DEPTH {
-            OneOrManyWrapper(&self.paths).serialize(serializer)
+            if self.paths.is_empty() {
+                serializer.serialize_map(Some(0))?.end()
+            } else {
+                OneOrManyWrapper(&self.paths).serialize(serializer)
+            }
         } else {
             let mut map =
                 serializer.serialize_map(Some(1 + self.include.len() + self.exclude.len()))?;
@@ -218,6 +229,38 @@ mod tests {
         assert_eq!(None, watch.include);
         assert_eq!(None, watch.exclude);
         assert!(watch.paths.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn serialize() -> Result<()> {
+        assert_eq!(yaml::to_string(&Watch::default())?.trim(), "{}");
+
+        let mut w = Watch::default();
+        w.add("test");
+        w.add("test");
+        assert_eq!(yaml::to_string(&w)?.trim(), "- test\n- test");
+        assert_eq!(yaml::from_str::<Watch>(&yaml::to_string(&w)?)?, w);
+
+        w.max_depth = 12;
+        assert_eq!(
+            yaml::to_string(&w)?.trim(),
+            "max_depth: 12\npaths:\n- test\n- test"
+        );
+
+        w.include = Some(GlobSet::try_from(["test", "toto**"])?);
+        assert_eq!(
+            yaml::to_string(&w)?.trim(),
+            "include:\n- test\n- toto**\nmax_depth: 12\npaths:\n- test\n- test"
+        );
+
+        w.exclude = Some(GlobSet::try_from(["tata"])?);
+        assert_eq!(
+            yaml::to_string(&w)?.trim(),
+            "include:\n- test\n- toto**\nexclude: tata\nmax_depth: 12\npaths:\n- test\n- test"
+        );
+        assert_eq!(yaml::from_str::<Watch>(&yaml::to_string(&w)?)?, w);
+        eprintln!("watch: {w:?}");
         Ok(())
     }
 
