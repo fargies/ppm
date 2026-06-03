@@ -151,3 +151,33 @@ impl<T> Chain for T {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn on_drop() {
+        let mut counter = 0;
+        {
+            let _guard = OnDrop::new(|| counter += 1);
+        }
+        assert_eq!(counter, 1);
+
+        {
+            let guard = OnDrop::new(|| counter += 1);
+            guard.deactivate();
+        }
+        assert_eq!(counter, 1);
+    }
+
+    #[test]
+    fn chain() {
+        assert_eq!(
+            13,
+            12u32
+                .then_mut(|value| *value += 1)
+                .then(|value| println!("value : {value}"))
+        );
+    }
+}
