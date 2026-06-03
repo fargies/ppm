@@ -314,6 +314,15 @@ mod tests {
         Ok(())
     }
 
+    fn get_payload<'a>(child: &mut Child, buf: &'a mut [u8]) -> Result<&'a str> {
+        let n = child
+            .stdout
+            .as_mut()
+            .expect("stdout not captured")
+            .read(buf)?;
+        Ok(str::from_utf8(&buf[..n])?)
+    }
+
     #[test]
     #[file_serial(server)]
     fn cli_log_tracker() -> Result<()> {
@@ -321,7 +330,7 @@ mod tests {
         let mut config = MkTemp::file("cli_log_tracker")?;
         config.write_all(
             format!(
-                "logger: {{ path: {:?}, auto_date: false }}",
+                "logger: {{ path: {:?}, auto_date: false, max_file_size: 9 }}",
                 log_dir.as_path()
             )
             .as_bytes(),
@@ -363,14 +372,7 @@ mod tests {
             .add_flag(FdFlags::NONBLOCK)?;
         let mut buf = [0; 10];
         wait_for!(
-            {
-                let n = tail
-                    .stdout
-                    .as_mut()
-                    .expect("stdout not captured")
-                    .read(&mut buf)?;
-                str::from_utf8(&buf[..n])? == "world\n"
-            },
+            get_payload(&mut tail, &mut buf)? == "world\n",
             Duration::from_secs(3),
             "failed to get tail: {}",
             str::from_utf8(&buf)?
@@ -382,15 +384,25 @@ mod tests {
 
         buf.fill(0);
         wait_for!(
-            {
-                let n = tail
-                    .stdout
-                    .as_mut()
-                    .expect("stdout not captured")
-                    .read(&mut buf)?;
-                str::from_utf8(&buf[..n])? == "world\n"
-            },
-            Duration::from_secs(3),
+            get_payload(&mut tail, &mut buf)? == "world\n",
+            Duration::from_secs(6),
+            "failed to get tail: {}",
+            str::from_utf8(&buf)?
+        )?;
+
+        // FIXME: if log file exist it should create a `_1.log` ?
+        // log file uses timestamp, going too fast would override current file
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        // should rotate logs
+        assert!(
+            ppm().args(["restart", "test"]).status()?.success(),
+            "failed to restart service"
+        );
+
+        buf.fill(0);
+        wait_for!(
+            get_payload(&mut tail, &mut buf)? == "world\n",
+            Duration::from_secs(6),
             "failed to get tail: {}",
             str::from_utf8(&buf)?
         )?;
