@@ -177,6 +177,8 @@ impl Client {
                 files.tail(&mut stdout(), *lines)?;
 
                 if follow.unwrap_or(false) {
+                    // track for changes on the last file in the set,
+                    // converting it back to a single [File] object.
                     ClientLogTracker::new(service.clone(), self, files.into(), filename).log()?;
                 }
                 Ok(())

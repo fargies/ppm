@@ -65,12 +65,24 @@ mod tests {
         server.kill().expect("failed to kill server")
     }
 
+    fn wait_server() -> Result<()> {
+        wait_for!(
+            ppm()
+                .args(["ls"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()?
+                .success()
+        )
+        .context("failed to connect server")
+    }
+
     #[test]
     #[file_serial(server)]
     fn cli_utils() -> Result<()> {
         let server = ppm().arg("daemon").spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
@@ -140,7 +152,7 @@ mod tests {
     fn cli_add_env() -> Result<()> {
         let server = ppm().arg("daemon").spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
@@ -178,7 +190,7 @@ mod tests {
             ))
             .spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
@@ -218,7 +230,7 @@ mod tests {
             ))
             .spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
@@ -283,7 +295,7 @@ mod tests {
             ))
             .spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
@@ -344,7 +356,7 @@ mod tests {
             ))
             .spawn()?;
         let _server_guard = OnDrop::new(|| kill_server(server));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        wait_server()?;
 
         assert!(
             ppm()
