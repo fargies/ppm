@@ -99,7 +99,7 @@ impl<'a> ClientLogTracker<'a> {
 
             for event in match ino.read_events_blocking(&mut buf) {
                 Ok(event) => event,
-                Err(_) if LOG_TRACKER_FD.get().is_none() => return self.forget_file(),
+                Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
                 Err(err) => return Err(err.into()),
             } {
                 refresh = event.mask.contains(EventMask::CLOSE_WRITE);
@@ -119,11 +119,15 @@ impl<'a> ClientLogTracker<'a> {
                         refresh = false;
 
                         ino = Inotify::init()?;
-                        if !self.replace_file(new_file)? {
-                            return Ok(());
-                        }
                         ino.watches()
-                            .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
+                            .add(new_file, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
+                        let file = File::open(new_file)?;
+                        if LOG_TRACKER_FD.replace(Some(ino.as_raw_fd())).is_none() {
+                            /* signal occured whilst replacing file */
+                            return self.forget_file();
+                        }
+                        self.file = Some(file);
+                        self.filename = new_file.clone();
                         break;
                     } else {
                         tracing::warn!("new log-file not detected");
@@ -170,9 +174,13 @@ impl<'a> ClientLogTracker<'a> {
                 && new_file != &self.filename
             {
                 tracing::trace!(file = ?new_file, "new log-file detected");
-                if !self.replace_file(new_file)? {
-                    return Ok(());
+                let file = File::open(new_file)?;
+                if LOG_TRACKER_FD.replace(Some(file.as_raw_fd())).is_none() {
+                    /* signal occured whilst replacing file */
+                    return self.forget_file();
                 }
+                self.file = Some(file);
+                self.filename = new_file.clone();
             }
         }
     }
@@ -182,17 +190,5 @@ impl<'a> ClientLogTracker<'a> {
         // already achieved by [LOG_TRACKER_FD].
         self.file.take().map(|f| f.into_raw_fd());
         Ok(())
-    }
-
-    fn replace_file(&mut self, filename: &PathBuf) -> Result<bool> {
-        let file = File::open(filename)?;
-        let old = LOG_TRACKER_FD.replace(Some(file.as_raw_fd()));
-        if old.is_none() {
-            /* signal occured whilst replacing file */
-            return self.forget_file().and(Ok(false));
-        }
-        self.file = Some(file);
-        self.filename = filename.clone();
-        Ok(true)
     }
 }
