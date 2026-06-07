@@ -194,7 +194,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(10));
         RefTimePoint::update();
         let now = SystemTime::now();
-        tracing::trace!(?ref_instant, ?ref_systime, new_ref_systime = ?to_systime(&ref_instant));
+        tracing::debug!(?ref_instant, ?ref_systime, new_ref_systime = ?to_systime(&ref_instant));
         assert_eq!(
             now.duration_since(ref_systime)?.as_millis(),
             now.duration_since(to_systime(&ref_instant))?.as_millis(),
