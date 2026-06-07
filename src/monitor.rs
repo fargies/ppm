@@ -472,7 +472,7 @@ mod tests {
             wait_for,
         },
     };
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use serial_test::serial;
 
     #[ctor::ctor]
@@ -576,7 +576,11 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         let _drop_guard = kill_on_drop(join_handle);
-        wait_for!(service.info().restarts > 1).expect("not restarted");
+        wait_for!(
+            service.info().restarts > 1,
+            "not restarted {:?}",
+            service.info()
+        )?;
 
         Ok(())
     }
@@ -596,25 +600,57 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
 
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(
+            service.info().pid.is_some(),
+            "not started {:?}",
+            service.info()
+        )?;
         Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
-        wait_for!(service.info().restarts >= 2).expect("not restarted");
+        wait_for!(
+            service.info().restarts >= 2,
+            "not restarted {:?}",
+            service.info()
+        )?;
         assert_eq!(service.info().throttle, 1);
 
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(
+            service.info().pid.is_some(),
+            "not started {:?}",
+            service.info()
+        )?;
         Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
-        wait_for!(service.info().restarts >= 3).expect("not restarted");
+        wait_for!(
+            service.info().restarts >= 3,
+            "not restarted {:?}",
+            service.info()
+        )?;
         assert_eq!(service.info().throttle, 2);
 
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(
+            service.info().pid.is_some(),
+            "not started {:?}",
+            service.info()
+        )?;
         Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
-        wait_for!(service.info().restarts >= 4).expect("not restarted");
+        wait_for!(
+            service.info().restarts >= 4,
+            "not restarted {:?}",
+            service.info()
+        )?;
         assert_eq!(service.info().throttle, 4);
 
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(
+            service.info().pid.is_some(),
+            "not started {:?}",
+            service.info()
+        )?;
         std::thread::sleep(std::time::Duration::from_millis(100) * 4 * 2);
         Signal::kill(service.info().pid.unwrap(), SIGKILL)?;
-        wait_for!(service.info().restarts >= 5).expect("not restarted");
+        wait_for!(
+            service.info().restarts >= 5,
+            "not restarted {:?}",
+            service.info()
+        )?;
         assert_eq!(service.info().throttle, 1);
 
         Ok(())
@@ -631,10 +667,14 @@ mod tests {
             std::thread::spawn(move || mon.run())
         };
         let _drop_guard = kill_on_drop(join_handle);
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(service.info().pid.is_some()).context("not started")?;
 
         mon.restart(&service);
-        wait_for!(service.info().restarts == 2).expect("not started");
+        wait_for!(
+            service.info().restarts == 2,
+            "not started {:?}",
+            service.info()
+        )?;
         mon.stop(&service);
 
         Ok(())
@@ -655,26 +695,24 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
 
-        wait_for!(service.info().pid.is_some()).expect("not started");
+        wait_for!(service.info().pid.is_some()).context("not started")?;
         let info = service.info();
         assert_ne!(None, info.pid);
 
         Signal::kill(info.pid.unwrap(), SIGSTOP)?;
         wait_for!(
             service.info().status == Status::Stopped,
-            "status={:?}",
-            service.info().status
-        )
-        .expect("not stopped");
+            "not stopped {:?}",
+            service.info()
+        )?;
 
         Signal::kill(info.pid.unwrap(), SIGCONT)?;
 
         wait_for!(
             service.info().status == Status::Running,
-            "status={:?}",
-            service.info().status
-        )
-        .expect("not running");
+            "not running {:?}",
+            service.info()
+        )?;
 
         Ok(())
     }
@@ -695,11 +733,19 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
 
-        wait_for!(service.info().restarts >= 3).expect("not scheduled");
+        wait_for!(
+            service.info().restarts >= 3,
+            "not scheduled {}",
+            service.info().restarts
+        )?;
         assert!(now.elapsed() >= Duration::from_secs(2));
 
         mon.stop(&service);
-        wait_for!(service.info().pid.is_none()).expect("not stopped");
+        wait_for!(
+            service.info().pid.is_none(),
+            "not stopped {:?}",
+            service.info()
+        )?;
         Ok(())
     }
 }
