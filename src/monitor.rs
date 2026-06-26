@@ -475,12 +475,14 @@ mod tests {
     use anyhow::{Context, Result};
     use serial_test::serial;
 
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn prepare() {
-        tracing_init(std::io::stdout, Some("debug"));
+        tracing_init(std::io::stdout, Some("debug")).expect("failed to init tests-tracing");
 
         // rust test framewrok uses threads, the main process may handle signals
-        (SignalSet::empty() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT).block();
+        (SignalSet::empty() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT)
+            .block()
+            .expect("failed to block signals");
     }
 
     #[test]
