@@ -333,10 +333,12 @@ mod tests {
     use super::*;
     use anyhow::Result;
 
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn prepare() {
         // rust test framewrok uses threads, the main process may handle signals
-        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD).block();
+        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD)
+            .block()
+            .expect("failed to block signals");
     }
 
     #[test]

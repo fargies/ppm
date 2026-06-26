@@ -150,10 +150,12 @@ mod tests {
     use anyhow::Result;
     use serial_test::serial;
 
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn prepare() {
         // rust test framewrok uses threads, the main process may handle signals
-        (SignalSet::empty() + SIGALRM).block();
+        (SignalSet::empty() + SIGALRM)
+            .block()
+            .expect("failed to block signals");
     }
 
     #[test]
