@@ -1,3 +1,32 @@
+## [1.6.0] - 2026-06-26
+
+### 🚀 Features
+
+- Automatically add timestamp in logs when missing
+
+### 🐛 Bug Fixes
+
+- Fix macos builds
+- Fix log tracker and integration tests
+- Fix log tracker on Linux
+- Process continuation test on MacOS
+
+### 📚 Documentation
+
+- Fix example Dockerfiles
+
+### 🧪 Testing
+
+- Add some tests on watchs
+- Adding some tests
+- Add log tracking tests
+- Add some traces
+
+### ⚙️ Miscellaneous Tasks
+
+- Reduce level of sysinfo update message
+- Dependencies update
+
 ## [1.5.3] - 2026-05-19
 
 ### 📚 Documentation
