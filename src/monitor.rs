@@ -480,7 +480,7 @@ mod tests {
         tracing_init(std::io::stdout, Some("debug"));
 
         // rust test framewrok uses threads, the main process may handle signals
-        (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD + SIGINT).block();
+        (SignalSet::empty() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT).block();
     }
 
     #[test]
@@ -710,6 +710,7 @@ mod tests {
 
         wait_for!(
             service.info().status == Status::Running,
+            Duration::from_secs(10), // there's a 5 secs delay in sysinfo on Mac
             "not running {:?}",
             service.info()
         )?;
