@@ -323,6 +323,12 @@ impl<'a> IntoIterator for &'a SignalSet {
     }
 }
 
+impl PartialEq for SignalSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().zip(other).all(|(s, o)| s == o)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serial_test::serial;
@@ -346,6 +352,13 @@ mod tests {
         let sig = Signal(libc::SIGTERM);
 
         tracing::info!(?sig, sig2 = ?Signal(libc::SIGCHLD), "debug test");
+
+        tracing::info!(sigset_full = ?SignalSet::full());
+    }
+
+    #[test]
+    fn signal_conv() {
+        assert_eq!(Signal::from(libc::SIGALRM), SIGALRM);
     }
 
     #[test]
@@ -356,6 +369,13 @@ mod tests {
     fn full_set() -> Result<()> {
         let sigset = SignalSet::full();
         sigset.block()?;
+
+        assert_eq!(SignalSet::load(), sigset);
+        assert_eq!(SignalSet::empty().fill(), &sigset);
+        for signal in &sigset {
+            tracing::info!("signal: {signal:?}");
+        }
+
         // may cause [blocked_signalhandler] to be spuriously invoked
         let sigset = sigset - SIGALRM - SIGTERM - SIGCHLD;
         sigset.unblock()
@@ -363,6 +383,11 @@ mod tests {
 
     extern "C" fn guard_sighandler(sig: libc::c_int) {
         panic!("blocked signal caught: {}", sig);
+    }
+
+    #[test]
+    fn proc_exists() {
+        assert!(Signal::exists(getpid()));
     }
 
     #[test]

@@ -148,6 +148,7 @@ fn is_invalid_id(id: &ServiceId) -> bool {
 }
 
 impl Service {
+    /// Create a new service
     pub fn new<T>(name: T, command: Command) -> Self
     where
         T: ToString,
@@ -164,6 +165,7 @@ impl Service {
         }
     }
 
+    /// Ensure a service is valid, generate an [Service::id] if needed.
     pub fn validate(mut self) -> Result<Self> {
         if self.id == SERVICE_ID_INVALID {
             self.id = S_ID.fetch_add(1, Ordering::Relaxed);
@@ -178,6 +180,9 @@ impl Service {
         Ok(self)
     }
 
+    /// start a service
+    ///
+    /// Alias on [Service::restart]
     #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self, logger))]
     pub fn start<'a, L>(&self, logger: L)
     where
@@ -186,6 +191,7 @@ impl Service {
         self.restart(logger)
     }
 
+    /// Spawn/restart a service
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self, logger), ret(level = "TRACE"))]
     pub fn restart<'a, L>(&self, logger: L)
     where
@@ -236,6 +242,9 @@ impl Service {
         }
     }
 
+    /// Set a service as `active`
+    ///
+    /// Will be automatically restarted if hooked on a [Monitor].
     #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret(level = "TRACE"))]
     pub fn set_active(&self, value: bool) {
         let mut guard = self._info.lock().unwrap();
@@ -453,6 +462,27 @@ mod tests {
         (SignalSet::empty() + SIGALRM + SIGTERM + SIGCHLD)
             .block()
             .expect("failed to block signals");
+    }
+
+    #[test]
+    fn default() -> Result<()> {
+        let service = Service::default();
+        service.validate().expect_err("should fail");
+        Ok(())
+    }
+
+    #[test]
+    fn debug() {
+        let service = Service::new("test", Command::new("ls", ["-la"]));
+        service.set_finished(); // should be rejected (not yet running)
+        service.set_crashed(); // should be rejected (not yet running)
+        tracing::info!(?service, "this is a service");
+        tracing::info!(service = ?Service::default(), "this is an invalid service");
+        assert_eq!(service.info().status, Status::Created);
+
+        service.set_running(1234);
+        service.set_crashed();
+        assert_eq!(service.info().status, Status::Crashed);
     }
 
     #[test]
