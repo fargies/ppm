@@ -59,8 +59,7 @@ mod tests {
     };
 
     use crate::{
-        service::{Command, Service},
-        utils::{MkTemp, kill_on_drop, wait_for},
+        service::{Command, Service}, utils::{GlobSet, MkTemp, kill_on_drop, wait_for},
     };
     use serde_yaml_ng as yaml;
     use serial_test::serial;
@@ -244,6 +243,22 @@ mod tests {
         wait_for!(service.info().restarts == 5).expect("failed to detect file change");
         wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
 
+        Ok(())
+    }
+
+    #[test]
+    fn watcher_trait() -> Result<()> {
+        let mut watcher = Watcher::new(Default::default())?;
+
+        watcher.add(
+            &0,
+            &Watch {
+                include: Some(GlobSet::try_from(["*test"])?),
+                paths: vec!["/tmp".into()],
+                ..Default::default()
+            },
+        )?;
+        tracing::info!(?watcher, "watcher created");
         Ok(())
     }
 }

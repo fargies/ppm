@@ -53,6 +53,19 @@ impl Debug for Buffer {
     }
 }
 
+impl std::io::Write for Buffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        (&mut self.data[self.range.end..])
+            .write(buf)
+            .inspect(|size| self.range.end += size)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.reset();
+        Ok(())
+    }
+}
+
 impl Buffer {
     pub fn new(size: usize) -> Self {
         Self {
@@ -160,6 +173,23 @@ mod tests {
 
         buffer.set_range(..);
         assert_eq!(buffer.capacity(), buffer.len());
+        Ok(())
+    }
+
+    #[test]
+    fn buffer_write() -> Result<()> {
+        let mut buffer = Buffer::new(6);
+        assert_eq!(buffer.len(), 0);
+        write!(buffer, "te")?;
+        write!(buffer, "st42")?;
+        assert_eq!(0, buffer.write(b"st42")?);
+        assert_eq!(b"test42", buffer.as_slice());
+
+        tracing::info!(?buffer, "this is our buffer");
+
+        buffer.flush()?;
+        assert_eq!(b"", buffer.as_slice());
+
         Ok(())
     }
 }
