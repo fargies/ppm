@@ -42,7 +42,7 @@ use crate::{
     utils::{InnerRef, wrap_map_iterator},
 };
 
-use super::{Action, ActionResult};
+use crate::api::{Action, ActionResult, Reply, Request, RequestId};
 
 const MAX_CONNECTIONS: usize = 16;
 
@@ -92,6 +92,7 @@ impl Server {
 
             match self.socket.accept() {
                 Ok(stream) => {
+                    tracing::trace!("connection opened");
                     if !self.running.load(Ordering::Relaxed) {
                         tracing::info!("shutdown request");
                         stream.0.shutdown(Shutdown::Both).unwrap_or(());
@@ -112,6 +113,8 @@ impl Server {
                                     &ActionResult::<()>::from(error),
                                 );
                             }
+                            tracing::trace!("connection closed");
+                            stream.0.shutdown(Shutdown::Both).unwrap_or(());
                             drop(token);
                         });
                     }
@@ -157,84 +160,112 @@ impl Server {
 
     #[tracing::instrument(fields(client = ?stream.peer_addr()?), skip(stream, monitor), err)]
     fn handle(stream: &TcpStream, monitor: Arc<Monitor>) -> Result<()> {
-        let mut reader =
-            serde_json::Deserializer::from_reader(BufReader::new(stream)).into_iter::<Action>();
+        let reader =
+            serde_json::Deserializer::from_reader(BufReader::new(stream)).into_iter::<Request>();
 
-        while let Some(Ok(action)) = reader.next() {
-            tracing::trace!(?action, "action requested");
-            if let Err(e) = Server::run_action(stream, &monitor, action) {
-                serde_json::to_writer(stream, &ActionResult::<()>::from(e))?;
+        for pkt in reader {
+            match pkt {
+                Ok(Request { id, action }) => {
+                    tracing::trace!(?id, ?action, "action requested");
+                    if let Err(e) = Server::run_action(stream, &monitor, &id, action) {
+                        serde_json::to_writer(stream, &Reply::<()>::err(&id, e))?;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(?err, "failed to build request");
+                    serde_json::to_writer(stream, &Reply::<()>::err(&None, err))?
+                }
             }
         }
         Ok(())
     }
 
-    fn run_action(stream: &TcpStream, monitor: &Arc<Monitor>, action: Action) -> Result<()> {
+    fn run_action(
+        stream: &TcpStream,
+        monitor: &Arc<Monitor>,
+        req_id: &Option<RequestId>,
+        action: Action,
+    ) -> Result<()> {
         match action {
             Action::Daemon { .. } => {
                 unimplemented!("daemon command must be handled from client side (fork/exec)")
             }
             Action::List => serde_json::to_writer(
                 stream,
-                &ActionResult::Ok(wrap_map_iterator(
-                    monitor
-                        .services
-                        .iter()
-                        .map(|x| (x.id, InnerRef(x, |x| &x.name))),
-                )),
+                &Reply::ok(
+                    req_id,
+                    wrap_map_iterator(
+                        monitor
+                            .services
+                            .iter()
+                            .map(|x| (x.id, InnerRef(x, |x| &x.name))),
+                    ),
+                ),
             )?,
-            Action::Info => serde_json::to_writer(
-                stream,
-                &ActionResult::Ok(wrap_map_iterator(
-                    monitor.services.iter().map(|x| (x.id, x.info())),
-                )),
-            )?,
+            Action::Info { service } => match service {
+                Some(service) => {
+                    let service = Server::find_service(monitor, &service)
+                        .with_context(|| format!("no such service \"{service}\""))?;
+                    serde_json::to_writer(
+                        stream,
+                        &Reply::ok(req_id, wrap_map_iterator([(service.id, service.info())])),
+                    )?
+                }
+                None => serde_json::to_writer(
+                    stream,
+                    &Reply::ok(
+                        req_id,
+                        wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.info()))),
+                    ),
+                )?,
+            },
             Action::Stats { service } => {
                 if let Some(service) = service {
                     let service = Server::find_service(monitor, &service)
                         .with_context(|| format!("no such service \"{service}\""))?;
                     serde_json::to_writer(
                         stream,
-                        &ActionResult::Ok(wrap_map_iterator([(service.id, service.stats())])),
+                        &Reply::ok(req_id, wrap_map_iterator([(service.id, service.stats())])),
                     )?
                 } else {
                     serde_json::to_writer(
                         stream,
-                        &ActionResult::Ok(wrap_map_iterator(
-                            monitor.services.iter().map(|x| (x.id, x.stats())),
-                        )),
+                        &Reply::ok(
+                            req_id,
+                            wrap_map_iterator(monitor.services.iter().map(|x| (x.id, x.stats()))),
+                        ),
                     )?
                 }
             }
             Action::DaemonStats => {
-                serde_json::to_writer(stream, &ActionResult::Ok(monitor.stats()))?
+                serde_json::to_writer(stream, &Reply::ok(req_id, monitor.stats()))?
             }
             Action::Restart { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
 
                 monitor.restart(&service);
-                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?;
             }
             Action::Reschedule { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
 
                 monitor.reschedule(&service);
-                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?;
             }
             Action::Stop { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
 
                 monitor.stop(&service);
-                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?;
             }
             Action::ShowConfiguration => {
-                serde_json::to_writer(stream, &ActionResult::Ok(yaml::to_string(&monitor)?))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, yaml::to_string(&monitor)?))?;
             }
             Action::ShowScheduler => {
-                serde_json::to_writer(stream, &ActionResult::Ok(monitor.scheduler.dump()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, monitor.scheduler.dump()))?;
             }
             Action::Add {
                 name,
@@ -256,14 +287,14 @@ impl Server {
                 service.workdir = workdir;
 
                 monitor.insert(service);
-                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?;
             }
             Action::Remove { service } => {
                 let service = Server::find_service(monitor, &service)
                     .with_context(|| format!("no such service \"{service}\""))?;
                 service.stop();
                 monitor.remove(&service.id);
-                serde_json::to_writer(stream, &ActionResult::Ok(()))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?;
             }
             Action::ListLogFiles { service } => {
                 let logger = monitor
@@ -275,7 +306,7 @@ impl Server {
                     .or_else(|| Server::is_daemon(&service).then_some(LOGGER_DAEMON_ID))
                     .with_context(|| format!("no such service \"{service}\""))?;
 
-                serde_json::to_writer(stream, &ActionResult::Ok(logger.list_files(id)))?;
+                serde_json::to_writer(stream, &Reply::ok(req_id, logger.list_files(id)))?;
             }
             Action::Log { .. } => unimplemented!("log command must be handled from client side"),
         }
@@ -313,7 +344,9 @@ mod tests {
         });
 
         let client = Client::connect(addr)?;
-        client.run(&Action::Info).expect("command failed");
+        client
+            .run(&Action::Info { service: None })
+            .expect("command failed");
 
         Ok(())
     }

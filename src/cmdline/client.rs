@@ -42,12 +42,11 @@ use tabled::{
 };
 
 use crate::{
+    api::{Action, ActionResult},
     monitor::scheduler::SchedulerEvent,
     service::{self, ServiceId},
     utils::{self, IS_OUT_COLORED, serializers::tabled::TDisplay},
 };
-
-use super::{Action, ActionResult};
 
 mod fileset;
 use fileset::FileSet;
@@ -99,9 +98,9 @@ impl Client {
             Action::List | Action::DaemonStats | Action::ListLogFiles { .. } => {
                 unimplemented!("not available from cmdline")
             }
-            Action::Info => {
+            action @ Action::Info { .. } => {
                 let services_list: HashMap<ServiceId, String> = self.invoke(&Action::List)?;
-                let info: HashMap<ServiceId, service::Info> = self.invoke(&Action::Info)?;
+                let info: HashMap<ServiceId, service::Info> = self.invoke(action)?;
                 let mut keys: Vec<ServiceId> = info.keys().copied().collect();
                 keys.sort();
 
@@ -293,7 +292,7 @@ mod tests {
         cli.0.set_read_timeout(Some(Duration::from_secs(1)))?;
 
         assert!(
-            cli.run(&Action::Info {})
+            cli.run(&Action::Info { service: None })
                 .unwrap_err()
                 .to_string()
                 .contains("no reply")

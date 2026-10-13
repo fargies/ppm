@@ -36,6 +36,8 @@ use std::{
 pub mod one_or_many;
 pub use one_or_many::OneOrManyWrapper;
 
+pub mod wrapper;
+
 /// Serialize a seq iterator
 pub struct SeqWrapper<T>(Cell<Option<T>>);
 

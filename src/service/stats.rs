@@ -21,12 +21,44 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use crate::utils::serializers::{human, tabled::TDisplay};
+use crate::utils::{
+    serde_utils::wrapper::{WSerializer, Wrapper},
+    serializers::tabled::TDisplay,
+};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tabled::Tabled;
 
 use super::tabled::bytes_str;
+
+struct MicroDurationWrapper<T>(T);
+impl<T> Wrapper<T> for MicroDurationWrapper<T> {
+    fn into(self) -> T {
+        self.0
+    }
+
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl Serialize for MicroDurationWrapper<&Duration> {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (self.0.as_micros() as u64).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for MicroDurationWrapper<Duration> {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        u64::deserialize(d).map(|v| Self(Duration::from_micros(v)))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default, Tabled)]
 pub struct Stats {
@@ -35,6 +67,7 @@ pub struct Stats {
     pub cpu_usage: f32,
 
     /// total aggregated CPU time
+    #[serde(with = "WSerializer::<MicroDurationWrapper<_>, _>")]
     #[tabled(display("TDisplay::to_string"), rename = "CPU time")]
     pub cpu_time: Duration,
 
@@ -64,7 +97,7 @@ pub struct Stats {
 
     /// Uptime
     #[serde(
-        with = "human::duration",
+        with = "WSerializer::<Option<MicroDurationWrapper<_>>, _>",
         default,
         skip_serializing_if = "Option::is_none"
     )]

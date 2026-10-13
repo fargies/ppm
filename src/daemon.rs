@@ -24,7 +24,8 @@
 use anyhow::Result;
 use dirs::{config_local_dir, home_dir};
 use ppm::{
-    cmdline::{self, DEFAULT_ADDR},
+    api::DEFAULT_SERVER_ADDR,
+    cmdline,
     monitor::{
         Monitor,
         logger::{LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME},
@@ -40,9 +41,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tracing_subscriber::{
-    layer::SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tracing::instrument(ret)]
 pub fn find_config_file() -> Option<PathBuf> {
@@ -85,7 +84,7 @@ fn main() -> Result<()> {
     let addr = std::env::var("PPM_LISTEN")
         .ok()
         .and_then(|x| x.parse::<SocketAddr>().ok())
-        .unwrap_or(DEFAULT_ADDR);
+        .unwrap_or(DEFAULT_SERVER_ADDR);
 
     Monitor::init()?;
 

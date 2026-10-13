@@ -52,6 +52,8 @@ pub mod tracing_utils;
 
 pub mod slices;
 
+pub mod pre_json;
+
 #[cfg(test)]
 pub mod test_utils;
 #[cfg(test)]

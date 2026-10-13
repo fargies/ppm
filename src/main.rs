@@ -24,7 +24,8 @@
 use anyhow::Result;
 use clap::Parser;
 use ppm::{
-    cmdline::{Action, Args, Client},
+    api::Action,
+    cmdline::{Args, Client},
     utils::tracing_utils::tracing_init,
 };
 use std::{env::current_exe, os::unix::process::CommandExt, path::Path, process};
