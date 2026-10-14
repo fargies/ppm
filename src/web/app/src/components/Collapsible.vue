@@ -5,12 +5,12 @@ import { ChevronDown } from '@lucide/vue';
 
 </style>
 <template>
-    <details class="group border-gray-400 border-b duration-5000 transition-all">
+    <details class="group border-border border-b duration-5000 transition-all">
         <summary
-            class="focus-visible:ring-2 ring-ring p-1 flex w-full cursor-pointer list-none items-center justify-between gap-4 text-left font-medium outline-none transition-colors hover:text-muted-foreground focus-visible:accent"
+            class="focus-visible:ring-2 ring-ring p-1 flex justify-between w-full cursor-pointer list-none items-center text-left font-medium outline-none transition-colors hover:text-muted-foreground focus-visible:accent"
         >
             <slot name="summary" />
-            <div class="ml-auto">
+            <div class="justify-end">
                 <ChevronDown
                     class="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-open:rotate-180"
                 />

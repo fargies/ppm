@@ -17,8 +17,7 @@
     @apply bg-foreground/5;
     @apply text-foreground;
     @apply font-semibold;
-
-    border-color: var(--border);
+    @apply border-border;
 }
 
 </style>

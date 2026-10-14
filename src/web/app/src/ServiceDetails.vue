@@ -6,13 +6,14 @@
 import { defineComponent, defineProps, ref, h, computed } from "vue";
 import { useInterval } from "@vueuse/core";
 import {
-    ChevronDown,
-    CheckSquare,
-    SquareX,
-    Pause,
     RotateCcw,
     Square,
     Play,
+    ChevronRight,
+    ChevronLeft,
+    ChevronUp,
+    CheckSquare,
+    SquareX,
 } from "@lucide/vue";
 import { client } from "./Client";
 import { servicesInfo, serviceNameMap, now, servicesStats } from "./store";
@@ -24,16 +25,33 @@ import {
     Button,
     Collapsible,
 } from "./components";
-import { mapStatusBadge, upTime, formatDuration, formatBytes } from "./utils";
+import {
+    mapStatusBadge,
+    upTime,
+    formatDuration,
+    formatBytes,
+    isNil,
+} from "./utils";
 
 let { id } = defineProps({ id: String });
 
-const updates = ref(0);
+const info_updates = ref(0);
+const stats_updates = ref(0);
 const info = computed(() => servicesInfo.value?.[id]);
 const stats = computed(() => servicesStats.value?.[id]);
+const nextService = computed(() =>
+    Object.keys(serviceNameMap.value).find((i) => i > id),
+);
+const prevService = computed(() =>
+    Object.keys(serviceNameMap.value).findLast((i) => i < id),
+);
 
 client.onMessage = (data) => {
-    updates.value += 1;
+    if (data?.id === "info") {
+        info_updates.value += 1;
+    } else if (data?.id === "stats") {
+        stats_updates.value += 1;
+    }
 };
 client.request_info(id);
 const interval = useInterval(5000, {
@@ -45,22 +63,43 @@ const interval = useInterval(5000, {
 </script>
 
 <template>
-    <Card>
+    <Card class="col-span-12">
         <template #header>
             <h3
+                title="service name"
                 :class="{ skel: !serviceNameMap?.[id] }"
-                class="skel-anim font-semibold text-accent"
+                class="skel-anim font-semibold text-2xl text-accent"
             >
                 {{ serviceNameMap?.[id] ?? "placeholder" }}
             </h3>
-            <WSState class="ml-auto" :status="updates" />
+            <div class="flex gap-1 ml-auto">
+                <RouterLink
+                    title="previous service"
+                    :to="{ params: { id: prevService } }"
+                    ><Button :disabled="isNil(prevService)" class="border-none!"
+                        ><ChevronLeft class="text-accent" /></Button
+                ></RouterLink>
+                <RouterLink title="service list" :to="{ name: 'list' }"
+                    ><Button class="border-none!"
+                        ><ChevronUp class="text-accent" /></Button
+                ></RouterLink>
+                <RouterLink
+                    title="next service"
+                    :to="{ params: { id: nextService } }"
+                    ><Button :disabled="isNil(nextService)" class="border-none!"
+                        ><ChevronRight class="text-accent" /></Button
+                ></RouterLink>
+            </div>
         </template>
         <Collapsible open>
-            <template #summary> Controls </template>
+            <template #summary
+                ><span title="service controls">Controls</span></template
+            >
             <div class="flex gap-1 justify-center md:justify-start md:ps-2">
                 <Button
                     :skel="!info"
-                    :disabled="!info?.pid"
+                    :disabled="!info?.active"
+                    title="stop and deactivate the service"
                     label="Stop"
                     @click="
                         client.send({
@@ -74,6 +113,7 @@ const interval = useInterval(5000, {
                 <Button
                     :skel="!info"
                     label="Run"
+                    title="(re)start and activate the service"
                     @click="
                         client.send({
                             method: 'restart',
@@ -87,7 +127,13 @@ const interval = useInterval(5000, {
             </div>
         </Collapsible>
         <Collapsible open>
-            <template #summary> Status </template>
+            <template #summary
+                ><div
+                    title="service live status"
+                    class="grow flex justify-between"
+                >
+                    Status <WSState :status="info_updates" /></div
+            ></template>
             <div
                 class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-1 p-1"
             >
@@ -105,8 +151,9 @@ const interval = useInterval(5000, {
                         info?.status ?? "?"
                     }}</Badge></ServiceInfoPart
                 >
-                <ServiceInfoPart :skel="!info" title="Active"
-                    >{{ info?.active ?? "?" }}
+                <ServiceInfoPart :skel="!info" title="Active">
+                    <CheckSquare class="text-success" v-if="info?.active" />
+                    <SquareX v-else class="text-failure" />
                 </ServiceInfoPart>
                 <ServiceInfoPart :skel="!info" title="Pid">{{
                     info?.pid ?? "?"
@@ -123,7 +170,13 @@ const interval = useInterval(5000, {
             </div>
         </Collapsible>
         <Collapsible v-show="info?.pid">
-            <template #summary> Statistics </template>
+            <template #summary
+                ><div
+                    title="service resource usage statistics"
+                    class="grow flex justify-between"
+                >
+                    Statistics<WSState :status="stats_updates" /></div
+            ></template>
             <div
                 class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-1 p-1"
             >

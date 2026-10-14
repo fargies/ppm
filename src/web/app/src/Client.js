@@ -6,7 +6,7 @@ import { useWebSocket } from "@vueuse/core";
 import { DateTime, Duration } from "luxon";
 import debug from "debug";
 
-import { servicesInfo, serviceNameMap, servicesStats, errors } from "./store";
+import { servicesInfo, serviceNameMap, servicesStats, addError } from "./store";
 import { isNil } from './utils';
 
 let api_url;
@@ -31,13 +31,16 @@ export class Client {
     const { status, data, send, open, close, ws } = useWebSocket(api_url, {
       autoReconnect: { delay: 1000 },
       autoClose: false,
+      onError(err) {
+        addError(err?.message ?? "server connection closed");
+      },
       onMessage: async (ws, event) => {
         try {
           let data = JSON.parse(await event.data.text());
           log("message received", data);
 
           if (data.hasOwnProperty("error")) {
-            errors.value.push(data.error);
+            addError(data.error);
           } else if (data?.id === "list") {
             serviceNameMap.value = data.result;
           } else if (data?.id === "info") {

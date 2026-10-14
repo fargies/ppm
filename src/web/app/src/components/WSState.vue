@@ -1,6 +1,6 @@
 <script setup>
 import { watch, getCurrentInstance, nextTick, ref } from "vue";
-import { ChevronsLeftRightEllipsis } from "@lucide/vue";
+import { ArrowBigDownDash, ChevronsLeftRightEllipsis } from "@lucide/vue";
 
 const { status } = defineProps(['status'])
 
@@ -27,7 +27,7 @@ watch(() => status, function () {
 }
 </style>
 <template>
-    <span class="inline-block fx-fade" v-if="show">
-        <ChevronsLeftRightEllipsis />
+    <span class="inline-block fx-fade" v-show="show">
+        <ArrowBigDownDash />
     </span>
 </template>

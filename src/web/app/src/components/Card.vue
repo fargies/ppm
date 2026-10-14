@@ -1,5 +1,5 @@
 <template>
-    <div class="border-gray-400 border rounded shadow-sm">
+    <div class="border-border border rounded shadow-sm">
         <div class="w-full flex p-1">
             <slot name="header"></slot>
 

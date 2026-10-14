@@ -24,6 +24,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use ppm::api::ActionResult;
 use ppm::{api::DEFAULT_SERVER_ADDR, utils::tracing_utils::tracing_init};
 use salvo::hyper::body::Bytes;
 use salvo::prelude::*;
@@ -67,7 +68,7 @@ async fn main() -> Result<()> {
 }
 
 async fn ws_handle(
-    mut ws: WebSocket,
+    mut ws: &mut WebSocket,
     pool: Arc<Pool<Client>>,
     addr: SocketAddr,
 ) -> anyhow::Result<()> {
@@ -108,10 +109,16 @@ async fn connect(req: &mut Request, res: &mut Response, depot: &Depot) -> Result
     let remote_addr = req.remote_addr().clone();
 
     WebSocketUpgrade::new()
-        .upgrade(req, res, async move |ws| {
+        .upgrade(req, res, async move |mut ws| {
             tracing::trace!(remote_addr=?remote_addr, "websocket connected");
-            if let Err(err) = ws_handle(ws, pool, addr).await {
+            if let Err(err) = ws_handle(&mut ws, pool, addr).await {
                 tracing::error!(?err, "websocket error");
+                let _ = ws.send(Message::binary(
+                    serde_json::to_vec(&ActionResult::<()>::Err(format!(
+                        "server error: {err:?}"
+                    )))
+                    .unwrap(),
+                )).await;
             }
             tracing::trace!(remote_addr=?remote_addr, "websocket closed");
         })
