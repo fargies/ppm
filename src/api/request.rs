@@ -91,6 +91,7 @@ impl<'a, T> Reply<'a, T>
 where
     T: Serialize,
 {
+    #[tracing::instrument(skip(value))]
     pub fn ok(id: &'a Option<RequestId>, value: T) -> Self {
         Self {
             id: Cow::Borrowed(id),

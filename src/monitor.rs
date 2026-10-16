@@ -171,12 +171,12 @@ impl Monitor {
     pub fn process(self: &Arc<Self>) {
         for event in self.scheduler.iter() {
             match event {
-                SchedulerEvent::ServiceSchedule { id, date_time, .. } => {
+                SchedulerEvent::ServiceSchedule { id, .. } => {
                     if let Some(service) = self.get(&id)
                         && service.info().active
                     {
                         service.restart(self.logger.as_ref());
-                        self.scheduler.reschedule(&service, Some(date_time));
+                        self.scheduler.reschedule(&service);
                     } else {
                         tracing::warn!(id, "unknown service");
                     }
@@ -196,20 +196,18 @@ impl Monitor {
                         tracing::warn!(id, "unknown service");
                     }
                 }
-                SchedulerEvent::Sysinfo { instant } => {
+                mut s @ SchedulerEvent::Sysinfo { .. } => {
                     self.sysinfo.lock().unwrap().update(self);
-                    self.scheduler.enqueue(SchedulerEvent::Sysinfo {
-                        instant: instant + self.stats_interval,
-                    });
+                    s.reschedule(self.stats_interval);
+                    self.scheduler.enqueue(s);
                 }
-                SchedulerEvent::ClockCheck { instant } => {
+                mut s @ SchedulerEvent::ClockCheck { .. } => {
                     if !RefTimePoint::check(None) {
                         tracing::info!("refreshing scheduler");
-                        self.scheduler.init(self);
+                        self.scheduler.refresh();
                     }
-                    self.scheduler.enqueue(SchedulerEvent::ClockCheck {
-                        instant: instant + self.clock_check_interval,
-                    });
+                    s.reschedule(self.clock_check_interval);
+                    self.scheduler.enqueue(s);
                 }
             }
         }
@@ -228,7 +226,13 @@ impl Monitor {
             sigset.restore().unwrap();
         });
 
-        self.scheduler.init(self);
+        self.scheduler.clear();
+        self.scheduler.enqueue(SchedulerEvent::Sysinfo {
+            instant: Instant::now() + self.stats_interval,
+        });
+        self.scheduler.enqueue(SchedulerEvent::ClockCheck {
+            instant: Instant::now() + self.clock_check_interval,
+        });
         for srv in self.services.iter().filter(|srv| srv.info().active) {
             self.inject(&srv);
         }
@@ -253,7 +257,8 @@ impl Monitor {
                 }
                 SIGHUP => {
                     tracing::info!("refreshing scheduler");
-                    self.scheduler.init(self);
+                    RefTimePoint::check(None);
+                    self.scheduler.refresh();
                 }
                 SIGCHLD => {
                     self.on_sigchld();
@@ -317,7 +322,7 @@ impl Monitor {
     /// Returns true if scheduler notifies that main thread should be awaken
     fn inject(self: &Arc<Self>, service: &Arc<Service>) -> bool {
         let (watch, wake) = if service.schedule.is_some() {
-            (true, self.scheduler.reschedule(service, None))
+            (true, self.scheduler.reschedule(service))
         } else if service.info().status != Status::Running {
             (
                 false,
@@ -350,7 +355,8 @@ impl Monitor {
             instant: Instant::now(),
         });
         if service.schedule.is_some() {
-            wake |= self.scheduler.reschedule(service, None);
+            /* exclusive reschedule from now, will not trigger right-away */
+            wake |= self.scheduler.reschedule(service);
         }
         if wake {
             self.wake();
@@ -372,7 +378,8 @@ impl Monitor {
     /// Reactivates and schedules a scheduled service
     pub fn reschedule(&self, service: &Service) {
         service.set_active(true);
-        if service.schedule.is_some() && self.scheduler.reschedule(service, None) {
+        /* inclusive reschedule, will spawn right away periodic tasks */
+        if service.schedule.is_some() && self.scheduler.reschedule(service) {
             self.wake();
         }
     }

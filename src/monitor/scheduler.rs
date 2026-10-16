@@ -24,6 +24,7 @@
 use std::{
     cmp::Ordering,
     collections::BinaryHeap,
+    ops::DerefMut,
     sync::{Mutex, MutexGuard},
     time::{Duration, Instant},
 };
@@ -86,8 +87,16 @@ impl SchedulerEvent {
             Self::ServiceSchedule { instant, .. }
             | Self::ServiceRestart { instant, .. }
             | Self::WatchServiceRestart { instant, .. } => instant,
-
             Self::Sysinfo { instant } | Self::ClockCheck { instant } => instant,
+        }
+    }
+
+    pub fn instant_mut(&mut self) -> &mut Instant {
+        match self {
+            SchedulerEvent::ServiceSchedule { instant, .. }
+            | SchedulerEvent::ServiceRestart { instant, .. }
+            | SchedulerEvent::WatchServiceRestart { instant, .. } => instant,
+            SchedulerEvent::Sysinfo { instant } | SchedulerEvent::ClockCheck { instant } => instant,
         }
     }
 
@@ -108,6 +117,16 @@ impl SchedulerEvent {
             Self::ClockCheck { .. } => {
                 matches!(other, Self::ClockCheck { .. })
             }
+        }
+    }
+
+    /// reschedule the event in the future (exclusive with regards to `now`), using the given interval
+    pub fn reschedule(&mut self, interval: Duration) {
+        let mut now = Instant::now();
+        let new = self.instant_mut();
+
+        while new <= &mut now {
+            *new += interval;
         }
     }
 }
@@ -132,40 +151,56 @@ impl PartialEq for SchedulerEvent {
 }
 
 impl Scheduler {
-    #[tracing::instrument(skip(self, monitor))]
-    pub fn init(&self, monitor: &Monitor) {
-        self.queue().clear();
-
-        self.queue().push(SchedulerEvent::Sysinfo {
-            instant: Instant::now() + monitor.stats_interval,
-        });
-        self.queue().push(SchedulerEvent::ClockCheck {
-            instant: Instant::now() + monitor.clock_check_interval,
-        });
+    #[tracing::instrument(skip(self))]
+    pub fn clear(&self) {
+        self.queue().clear()
     }
 
-    /// (re)schedule a period service
+    /// Refresh [DateTime] based events according to eventual clock-drift
+    #[tracing::instrument(skip(self))]
+    pub fn refresh(&self) {
+        let mut queue = self.queue();
+        if !queue
+            .iter()
+            .any(|e| matches!(e, SchedulerEvent::ServiceSchedule { .. }))
+        {
+            return;
+        }
+
+        let mut old = BinaryHeap::with_capacity(queue.len());
+        std::mem::swap(queue.deref_mut(), &mut old);
+
+        for mut event in old.into_iter() {
+            if let SchedulerEvent::ServiceSchedule {
+                instant, date_time, ..
+            } = &mut event
+            {
+                *instant = from_systime(&(*date_time).into());
+            }
+            queue.push(event);
+        }
+    }
+
+    /// (re)schedule a periodic service
     ///
     /// - returns true if the enqueued item is the most prioritary in the queue
     #[tracing::instrument(fields(id = service.id, name = service.name), skip(self, service))]
-    pub fn reschedule(&self, service: &Service, last: Option<DateTime<Local>>) -> bool {
-        if let Some(schedule) = service.schedule.as_ref() {
-            if let Ok(next) = schedule.find_next_occurrence(
-                &last
-                    .unwrap_or_else(|| Local::now().duration_trunc(TimeDelta::seconds(1)).unwrap()),
-                false,
-            ) {
-                tracing::info!(?next);
-                return self.enqueue(SchedulerEvent::ServiceSchedule {
-                    id: service.id,
-                    date_time: next,
-                    instant: from_systime(&next.into()),
-                });
-            } else {
-                tracing::error!("failed to get schedule for service");
-            }
+    pub fn reschedule(&self, service: &Service) -> bool {
+        let schedule = match service.schedule.as_ref() {
+            Some(s) => s,
+            None => return false,
+        };
+        if let Ok(next) = schedule.find_next_occurrence(&Self::now(), false) {
+            tracing::info!(?next);
+            self.enqueue(SchedulerEvent::ServiceSchedule {
+                id: service.id,
+                date_time: next,
+                instant: from_systime(&next.into()),
+            })
+        } else {
+            tracing::error!("failed to get schedule for service");
+            false
         }
-        false
     }
 
     pub fn peek(&self) -> Option<Duration> {
@@ -188,6 +223,7 @@ impl Scheduler {
         queue.peek().is_some_and(|e| e.instant() == &stamp)
     }
 
+    #[tracing::instrument(level = "TRACE", skip(self), ret)]
     pub fn remove(&self, service: &ServiceId) {
         self.queue()
             .retain(|evt| evt.id().is_none_or(|id| &id != service));
@@ -207,6 +243,10 @@ impl Scheduler {
         /* BTreeMap iteration is random order */
         ret.sort_unstable_by(|x, y| y.cmp(x));
         ret
+    }
+
+    pub fn now() -> DateTime<Local> {
+        Local::now().duration_trunc(TimeDelta::seconds(1)).unwrap()
     }
 }
 

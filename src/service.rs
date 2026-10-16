@@ -27,7 +27,6 @@ use libc::{WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WTERMS
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::{
-    env::{current_dir, current_exe},
     ops::Deref,
     path::PathBuf,
     process,
@@ -38,8 +37,11 @@ use std::{
 };
 
 use crate::monitor::logger::Logger;
-use crate::utils::libc::waitpid;
-use crate::utils::signal::{self, SIGTERM, Signal};
+use crate::utils::{
+    find_ppm_tool,
+    libc::waitpid,
+    signal::{self, SIGTERM, Signal},
+};
 
 mod command;
 pub use command::Command;
@@ -63,36 +65,7 @@ pub const SERVICE_ID_INVALID: usize = usize::MAX;
 
 pub type ServiceId = usize;
 
-static LAUNCHER_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    match current_exe()
-        .ok()
-        .and_then(|mut path| {
-            path.set_file_name("ppm-launcher");
-            if path.exists() { Some(path) } else { None }
-        })
-        .or_else(|| {
-            current_dir()
-                .ok()
-                .map(|path| path.join("target/debug/ppm-launcher"))
-                .filter(|p| p.exists())
-        })
-        .or_else(|| {
-            current_dir()
-                .ok()
-                .map(|path| path.join("target/release/ppm-launcher"))
-                .filter(|p| p.exists())
-        }) {
-        ret @ Some(_) => ret,
-        None => {
-            tracing::error!("no launcher found");
-            #[cfg(test)]
-            tracing::error!(
-                "invoke `cargo build` to compile the ppm-launcher before running tests"
-            );
-            None
-        }
-    }
-});
+static LAUNCHER_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| find_ppm_tool("ppm-launcher"));
 
 fn get_service_id_default() -> usize {
     SERVICE_ID_INVALID

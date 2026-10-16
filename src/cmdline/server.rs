@@ -26,8 +26,10 @@ use serde_yaml_ng as yaml;
 use std::{
     io::BufReader,
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
+    os::fd::{FromRawFd, IntoRawFd},
+    path::PathBuf,
     sync::{
-        Arc,
+        Arc, LazyLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
@@ -39,12 +41,13 @@ use crate::{
         logger::{LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME},
     },
     service::{Command, Service, ServiceId},
-    utils::{InnerRef, wrap_map_iterator},
+    utils::{InnerRef, find_ppm_tool, wrap_map_iterator},
 };
 
 use crate::api::{Action, ActionResult, Reply, Request, RequestId};
 
 const MAX_CONNECTIONS: usize = 16;
+static PPM_CLI_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| find_ppm_tool("ppm"));
 
 #[derive(Debug)]
 pub struct Server {
@@ -308,7 +311,30 @@ impl Server {
 
                 serde_json::to_writer(stream, &Reply::ok(req_id, logger.list_files(id)))?;
             }
-            Action::Log { .. } => unimplemented!("log command must be handled from client side"),
+            Action::Log {
+                service,
+                lines,
+                follow,
+            } => {
+                let cli = PPM_CLI_EXE.as_ref().ok_or(anyhow!("ppm cli not found"))?;
+                let mut cmd = std::process::Command::new(cli);
+                cmd.stdin(std::process::Stdio::null()).args([
+                    "log",
+                    "--addr",
+                    stream.local_addr()?.to_string().as_str(),
+                ]);
+                if let Some(lines) = lines {
+                    cmd.args(["-n", lines.to_string().as_str()]);
+                }
+                if follow.is_some_and(|f| f) {
+                    cmd.arg("-f");
+                }
+                cmd.arg(service);
+                let raw_fd = stream.try_clone()?.into_raw_fd();
+                cmd.stdout(unsafe { std::process::Stdio::from_raw_fd(raw_fd) })
+                    .stderr(std::process::Stdio::inherit());
+                cmd.spawn()?;
+            }
         }
         Ok(())
     }

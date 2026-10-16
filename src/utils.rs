@@ -22,8 +22,7 @@
 */
 
 use std::{
-    io::IsTerminal,
-    sync::{Arc, atomic::AtomicBool},
+    env::{current_dir, current_exe}, io::IsTerminal, path::PathBuf, sync::{Arc, atomic::AtomicBool},
 };
 
 pub mod serde_utils;
@@ -70,6 +69,35 @@ pub static IS_OUT_COLORED: LazyBool = LazyBool::new(|| {
         std::io::stdout().is_terminal() && !std::env::var("NO_COLOR").is_ok_and(|v| !v.is_empty()),
     )
 });
+
+pub fn find_ppm_tool(name: &str) -> Option<PathBuf> {
+    match current_exe()
+        .ok()
+        .and_then(|mut path| {
+            path.set_file_name(name);
+            if path.exists() { Some(path) } else { None }
+        })
+        .or_else(|| {
+            current_dir()
+                .ok()
+                .map(|path| path.join("target/debug").join(name))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            current_dir()
+                .ok()
+                .map(|path| path.join("target/release").join(name))
+                .filter(|p| p.exists())
+        }) {
+        ret @ Some(_) => ret,
+        None => {
+            tracing::error!("tool not found: {name}");
+            #[cfg(test)]
+            tracing::error!("invoke `cargo build` to compile {name} before running tests");
+            None
+        }
+    }
+}
 
 pub struct OnDrop<T>(Option<T>)
 where
@@ -181,5 +209,10 @@ mod tests {
                 .then_mut(|value| *value += 1)
                 .then(|value| println!("value : {value}"))
         );
+    }
+
+    #[test]
+    fn ppm_tool() {
+        assert!(find_ppm_tool("ppm-launcher").is_some());
     }
 }
