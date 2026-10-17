@@ -32,7 +32,6 @@ use std::{
 use chrono::{DateTime, DurationRound, Local, TimeDelta};
 use serde::{Deserialize, Serialize};
 
-use super::Monitor;
 use crate::{
     service::{Service, ServiceId},
     utils::serializers::{self, instant::from_systime},
