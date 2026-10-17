@@ -23,11 +23,7 @@
 use std::{net::SocketAddr, ops::DerefMut};
 
 use anyhow::{Error, Result};
-use ppm::{
-    api::{Action, ActionResult},
-    utils::pre_json::JsonPreParser,
-};
-use serde::de::DeserializeOwned;
+use ppm::utils::pre_json::JsonPreParser;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpStream, ToSocketAddrs},
@@ -35,8 +31,7 @@ use tokio::{
 
 pub struct Client {
     pub stream: Option<TcpStream>,
-    read_buffer: JsonPreParser,
-    write_buffer: Vec<u8>,
+    pub read_buffer: JsonPreParser,
 }
 
 impl Client {
@@ -47,7 +42,6 @@ impl Client {
         Ok(Self {
             stream: Some(TcpStream::connect(addr).await?),
             read_buffer: Default::default(),
-            write_buffer: Vec::with_capacity(4096),
         })
     }
 
@@ -63,7 +57,7 @@ impl Client {
         };
 
         stream.write_all(data).await?;
-        tracing::trace!(size=data.len(), "raw action sent");
+        tracing::trace!(size = data.len(), "raw action sent");
         loop {
             tokio::time::timeout(std::time::Duration::from_secs(5), stream.readable()).await??;
 
@@ -81,46 +75,8 @@ impl Client {
                 /* restore the stream */
                 self.stream = Some(stream);
                 let data = self.read_buffer.get().unwrap();
-                tracing::trace!(size=data.len(), "action reply");
+                tracing::trace!(size = data.len(), "action reply");
                 return Ok(data);
-            }
-        }
-    }
-
-    #[tracing::instrument(skip(self), ret(level = "TRACE"), err)]
-    pub async fn invoke<R>(&mut self, action: &Action) -> Result<ActionResult<R>>
-    where
-        R: DeserializeOwned + std::fmt::Debug,
-    {
-        self.write_buffer.clear();
-        serde_json::to_writer(&mut self.write_buffer, &action)?;
-        let mut stream = match self.stream.take() {
-            Some(stream) => stream,
-            None => return Err(Error::msg("client closed")),
-        };
-        stream.write_all(self.write_buffer.as_ref()).await?;
-
-        tracing::trace!("action sent");
-        loop {
-            tokio::time::timeout(std::time::Duration::from_secs(5), stream.readable()).await??;
-
-            match stream.try_read_buf(self.read_buffer.deref_mut()) {
-                Ok(0) => return Err(Error::msg("connection closed")),
-                Ok(_) => (),
-                Err(ref e) if e.kind() == tokio::io::ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-            if self.read_buffer.parse() {
-                let data = self.read_buffer.get().unwrap();
-                let reply: ActionResult<R> = serde_json::from_slice(data)?;
-
-                /* restore the stream */
-                self.stream = Some(stream);
-                return Ok(reply);
             }
         }
     }

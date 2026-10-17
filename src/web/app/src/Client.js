@@ -9,7 +9,7 @@ import debug from "debug";
 import { servicesInfo, serviceNameMap, servicesStats, addError } from "./store";
 import { isNil } from './utils';
 
-let api_url;
+export let api_url;
 if (typeof __API_URL__ === "undefined") {
   let url = new URL("ws", window.location.href);
   url.protocol.replace("http", "ws");

@@ -32,11 +32,13 @@ import {
     formatBytes,
     isNil,
 } from "./utils";
+import ServiceLog from "./components/ServiceLog.vue";
 
 let { id } = defineProps({ id: String });
 
 const info_updates = ref(0);
 const stats_updates = ref(0);
+const log_updates = ref(0);
 const info = computed(() => servicesInfo.value?.[id]);
 const stats = computed(() => servicesStats.value?.[id]);
 const nextService = computed(() =>
@@ -91,7 +93,7 @@ const interval = useInterval(5000, {
                 ></RouterLink>
             </div>
         </template>
-        <Collapsible open>
+        <Collapsible :open="true">
             <template #summary
                 ><span title="service controls">Controls</span></template
             >
@@ -126,7 +128,7 @@ const interval = useInterval(5000, {
                 </Button>
             </div>
         </Collapsible>
-        <Collapsible open>
+        <Collapsible :open="true">
             <template #summary
                 ><div
                     title="service live status"
@@ -206,6 +208,15 @@ const interval = useInterval(5000, {
                 }}</ServiceInfoPart>
             </div>
         </Collapsible>
-        <div></div>
+        <Collapsible>
+            <template #summary
+                ><div title="service logs" class="grow flex justify-between">
+                    Logs <WSState :status="log_updates" />
+                </div></template
+            >
+            <template #default="{ open }">
+                <ServiceLog v-if="open" :id="id" :max_lines="20" :lines="20" :follow="true" @update="log_updates += 1" />
+            </template>
+        </Collapsible>
     </Card>
 </template>

@@ -12,9 +12,10 @@
 - [] when rotating files do look for `\n` boundaries
 - [] doc show minimalistic service config (id not mandatory)
 - [] installation -> publish on docker hub
-- [] external API (grpc ?)
+- [x] external API (grpc ?) --> json-rpc
 - [] binaries shipped with releases on GitHub
 - [] add mode to spawn service as container (having ppm in entry-point) CMD
 - [x] add daemon log-file (with rotate and config)
 - [] add hot-reload feature
 - [] fix log file naming, do not override existing files
+- [] check resources and eventual fd leak when spawning childs and running "log" sub-command from web-app

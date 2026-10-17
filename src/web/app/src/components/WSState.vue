@@ -27,7 +27,7 @@ watch(() => status, function () {
 }
 </style>
 <template>
-    <span class="inline-block fx-fade" v-show="show">
+    <span class="inline-block fx-fade" v-if="show">
         <ArrowBigDownDash />
     </span>
 </template>

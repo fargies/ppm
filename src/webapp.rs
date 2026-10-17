@@ -22,9 +22,10 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow, Error};
 use clap::Parser;
 use ppm::api::ActionResult;
+use ppm::utils::pre_json::JsonPreParser;
 use ppm::{api::DEFAULT_SERVER_ADDR, utils::tracing_utils::tracing_init};
 use salvo::hyper::body::Bytes;
 use salvo::prelude::*;
@@ -34,6 +35,7 @@ use salvo::websocket::{Message, WebSocketUpgrade};
 use salvo::{logging::Logger, websocket::WebSocket};
 
 mod web;
+use tokio::io::AsyncWriteExt;
 use web::{client::Client, pool::Pool};
 
 #[derive(rust_embed::RustEmbed)]
@@ -68,7 +70,7 @@ async fn main() -> Result<()> {
 }
 
 async fn ws_handle(
-    mut ws: &mut WebSocket,
+    ws: &mut WebSocket,
     pool: Arc<Pool<Client>>,
     addr: SocketAddr,
 ) -> anyhow::Result<()> {
@@ -94,6 +96,68 @@ async fn ws_handle(
     Ok(())
 }
 
+async fn ws_raw(
+    ws: &mut WebSocket,
+    pool: Arc<Pool<Client>>,
+    addr: SocketAddr,
+) -> anyhow::Result<()> {
+    /* destructure the client */
+    let Client {
+        stream,
+        read_buffer: JsonPreParser { mut buffer, .. },
+    } = pool
+        .acquire(&addr)
+        .await
+        .context("failed to acquire client")?
+        .into_inner()
+        .context("failed to extract client")?;
+    let mut stream = match stream {
+        Some(stream) => stream,
+        None => return Err(anyhow!("client closed")),
+    };
+
+    loop {
+        tokio::select! {
+            msg = ws.recv() => {
+                tracing::debug!("websocket msg received");
+                let msg = match msg {
+                    Some(msg) => msg.context("websocket error")?,
+                    None => {
+                        tracing::trace!("client closed");
+                        return Ok(())
+                    },
+                };
+                if msg.is_close() {
+                    tracing::trace!("client close message");
+                    return Ok(());
+                }
+                tracing::debug!("websocket msg sending");
+                stream.write_all(msg.as_bytes()).await?;
+                tracing::debug!("websocket msg sent");
+            }
+            ret = stream.readable() => {
+                ret?;
+                tracing::debug!("remote readable");
+                buffer.clear();
+                match
+                stream.try_read_buf(&mut buffer) {
+                    Ok(0) => return Err(Error::msg("remote connection closed")),
+                    Ok(_) => (),
+                    Err(ref e) if e.kind() == tokio::io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e.into());
+                    }
+                }
+                tracing::warn!(log = ?String::from_utf8_lossy(buffer.as_slice()));
+                ws.send(Message::binary(Bytes::copy_from_slice(buffer.as_slice()))).await?;
+            }
+        }
+    }
+    // Ok(())
+}
+
 #[handler]
 async fn connect(req: &mut Request, res: &mut Response, depot: &Depot) -> Result<(), StatusError> {
     let pool: Arc<Pool<Client>> = depot
@@ -107,19 +171,27 @@ async fn connect(req: &mut Request, res: &mut Response, depot: &Depot) -> Result
         .get::<SocketAddr>("addr")
         .unwrap_or(&DEFAULT_SERVER_ADDR);
     let remote_addr = req.remote_addr().clone();
+    let is_raw = req.query::<String>("raw").is_some();
 
     WebSocketUpgrade::new()
         .upgrade(req, res, async move |mut ws| {
-            tracing::trace!(remote_addr=?remote_addr, "websocket connected");
-            if let Err(err) = ws_handle(&mut ws, pool, addr).await {
+            tracing::trace!(remote_addr=?remote_addr, is_raw, "websocket connected");
+            let ret = if is_raw {
+                ws_raw(&mut ws, pool, addr).await
+            } else {
+                ws_handle(&mut ws, pool, addr).await
+            };
+            if let Err(err) = ret {
                 tracing::error!(?err, "websocket error");
-                let _ = ws.send(Message::binary(
-                    serde_json::to_vec(&ActionResult::<()>::Err(format!(
-                        "server error: {err:?}"
-                    )))
-                    .unwrap(),
-                )).await;
-            }
+                let _ = ws
+                    .send(Message::binary(
+                        serde_json::to_vec(&ActionResult::<()>::Err(format!(
+                            "server error: {err:?}"
+                        )))
+                        .unwrap(),
+                    ))
+                    .await;
+            };
             tracing::trace!(remote_addr=?remote_addr, "websocket closed");
         })
         .await

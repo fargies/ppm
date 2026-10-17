@@ -56,9 +56,11 @@ impl<K: PoolItem> Pool<K> {
     pub async fn release(&self, k: K) {
         let mut items = self.items.lock().await;
         if items.len() >= self.keep_alive {
+            tracing::trace!("dropping item from pool");
             drop(items);
             drop(k);
         } else {
+            tracing::trace!("releasing item to pool");
             items.push(k);
         }
     }
@@ -87,6 +89,12 @@ impl Pool<Client> {
 pub struct PoolRef<K: PoolItem> {
     pool: Arc<Pool<K>>,
     item: Option<K>,
+}
+
+impl<K: PoolItem> PoolRef<K> {
+    pub fn into_inner(mut self) -> Option<K> {
+        self.item.take()
+    }
 }
 
 impl<K: PoolItem> Deref for PoolRef<K> {

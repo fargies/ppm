@@ -25,6 +25,7 @@
     --color-ring: var(--ring);
     --shadow-xs: var(--shadow-xs);
     --shadow-sm: var(--shadow-sm);
+    --color-accent: var(--accent);
 }
 
 :root {

@@ -1,4 +1,4 @@
-<style>
+<style lang="postcss">
 @reference "../style.css";
 
 .badge.success {
@@ -19,7 +19,6 @@
     @apply font-semibold;
     @apply border-border;
 }
-
 </style>
 <template>
     <span
