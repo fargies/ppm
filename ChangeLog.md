@@ -1,3 +1,26 @@
+## [1.7.0] - 2026-10-17
+
+### 🚀 Features
+
+- Add vite/vue webserver
+- Add log feature on server-side, invoking cli
+- Adding service-log widgets in web-app
+
+### 🚜 Refactor
+
+- Working on web interface
+- Move web-app in separate repo
+
+### 🧪 Testing
+
+- Add some tests
+- Adding some tests
+
+### ⚙️ Miscellaneous Tasks
+
+- Update dependencies
+- Bump version
+
 ## [1.6.0] - 2026-06-26
 
 ### 🚀 Features
