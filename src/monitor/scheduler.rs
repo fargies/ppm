@@ -43,6 +43,7 @@ pub struct Scheduler {
 }
 
 #[derive(Eq, Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "event")]
 pub enum SchedulerEvent {
     ServiceSchedule {
         id: ServiceId,

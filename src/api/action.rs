@@ -26,7 +26,7 @@ use clap::Subcommand;
 use serde::{Deserialize, Serialize, de::Visitor, ser::SerializeStruct};
 
 #[derive(Serialize, Deserialize, Subcommand, Debug, Eq, PartialEq)]
-#[serde(tag = "method", content = "params", rename_all = "lowercase")]
+#[serde(tag = "method", content = "params", rename_all = "kebab-case")]
 pub enum Action {
     /// Start the daemon
     Daemon {
@@ -127,6 +127,9 @@ pub enum Action {
 
     /// Get scheduler info
     ShowScheduler,
+
+    /// Trigger a sys/monotonic clock sync
+    ClockCheck
 }
 
 fn parse_key_val<T, U>(

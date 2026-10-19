@@ -32,13 +32,14 @@ use std::{
         Arc, LazyLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
     monitor::{
         Monitor,
         logger::{LOGGER_DAEMON_ID, LOGGER_DAEMON_NAME},
+        scheduler::SchedulerEvent,
     },
     service::{Command, Service, ServiceId},
     utils::{InnerRef, find_ppm_tool, wrap_map_iterator},
@@ -269,6 +270,12 @@ impl Server {
             }
             Action::ShowScheduler => {
                 serde_json::to_writer(stream, &Reply::ok(req_id, monitor.scheduler.dump()))?;
+            }
+            Action::ClockCheck => {
+                monitor.scheduler.enqueue(SchedulerEvent::ClockCheck {
+                    instant: Instant::now(),
+                });
+                serde_json::to_writer(stream, &Reply::ok(req_id, ()))?
             }
             Action::Add {
                 name,
