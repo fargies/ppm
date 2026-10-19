@@ -42,7 +42,7 @@ filter_unconventional = false
 # Takes precedence over filter_unconventional.
 require_conventional = true
 # Split commits on newlines, treating each line as an individual commit.
-split_commits = false
+split_commits = true
 # An array of regex based parsers to modify commit messages prior to further processing.
 commit_preprocessors = [
     { pattern = "^:bug:", replace = "fix:" },
