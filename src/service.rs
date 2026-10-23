@@ -40,7 +40,7 @@ use crate::monitor::logger::Logger;
 use crate::utils::{
     find_ppm_tool,
     libc::waitpid,
-    signal::{self, SIGTERM, Signal},
+    signal::{self, SIGINT, SIGTERM, Signal},
 };
 
 mod command;
@@ -295,7 +295,7 @@ impl Service {
                 "service terminated by signal"
             );
 
-            if signal == SIGTERM {
+            if signal == SIGTERM || signal == SIGINT {
                 Arc::make_mut(&mut guard).set_finished();
             } else {
                 Arc::make_mut(&mut guard).set_crashed();

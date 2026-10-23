@@ -18,4 +18,5 @@
 - [x] add daemon log-file (with rotate and config)
 - [] add hot-reload feature
 - [] fix log file naming, do not override existing files
-- [] check resources and eventual fd leak when spawning childs and running "log" sub-command from web-app
+- [] log_tracker does not detect if stdout is closed and no logs are being written
+- [] log_tracker process is not killed with parent -> setsid issue ?

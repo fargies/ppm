@@ -27,12 +27,14 @@ use std::{
     io::{self, stdout},
     os::fd::{AsRawFd, IntoRawFd, RawFd},
     path::PathBuf,
+    time::Duration,
 };
 
 use crate::{
     cmdline::Action,
     utils::{
         OnDrop,
+        poller::{Poller, PollerFlags},
         signal::{SIGINT, SIGTERM, Signal},
     },
 };
@@ -90,6 +92,11 @@ impl<'a> ClientLogTracker<'a> {
         SIGTERM.set_handler(client_sighandler)?;
         SIGINT.set_handler(client_sighandler)?;
 
+        let mut poller = Poller::default();
+        let mut pfds = poller.make_pfds(2);
+        pfds.push(&stdout(), PollerFlags::HUP | PollerFlags::ERR);
+        pfds.push(&ino, PollerFlags::IN | PollerFlags::ERR);
+
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
             io::copy(
@@ -97,7 +104,15 @@ impl<'a> ClientLogTracker<'a> {
                 &mut stdout(),
             )?;
 
-            for event in match ino.read_events_blocking(&mut buf) {
+            poller.poll(&mut pfds, None)?;
+            for (_, flags) in pfds.iter() {
+                if flags.has_error() {
+                    tracing::info!(flags = ?flags, "output closed");
+                    return Ok(());
+                }
+            }
+
+            for event in match ino.read_events(&mut buf) {
                 Ok(event) => event,
                 Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
                 Err(err) => return Err(err.into()),
@@ -128,10 +143,12 @@ impl<'a> ClientLogTracker<'a> {
                         }
                         self.file = Some(file);
                         self.filename = new_file.clone();
+                        pfds.pop();
+                        pfds.push(&ino, PollerFlags::IN | PollerFlags::ERR);
                         break;
                     } else {
                         tracing::warn!("new log-file not detected");
-                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        std::thread::sleep(Duration::from_secs(3));
                     }
                 }
             }
@@ -151,20 +168,36 @@ impl<'a> ClientLogTracker<'a> {
         LOG_TRACKER_FD.replace(Some(
             self.file.as_ref().context("already closed")?.as_raw_fd(),
         ));
+        /* this is used mainly to detect output closure */
+        let mut poller = Poller::default();
+        let mut pfds = poller.make_pfds(1);
+        pfds.push(&stdout(), PollerFlags::HUP | PollerFlags::ERR);
 
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
+
+            /* poll file for new-data every sec for 5sec */
             for _ in 0..5 {
                 match io::copy(
                     &mut self.file.as_mut().context("already closed")?,
                     &mut stdout(),
                 ) {
-                    Ok(_) => (),
+                    Ok(0) => (),
+                    Ok(size) => tracing::trace!(size, "bytes copied"),
                     Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
                     Err(err) => return Err(err.into()),
                 };
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                /* using poll to sleep, monitoring output state */
+                poller.poll(&mut pfds, Some(Duration::from_secs(1)))?;
+                for (_, flags) in pfds.iter() {
+                    if flags.has_error() {
+                        tracing::info!(flags = ?flags, "output closed");
+                        return Ok(());
+                    }
+                }
             }
+
+            /* check if file was rotated */
             if let Some(new_file) = self
                 .client
                 .invoke::<Vec<PathBuf>>(&Action::ListLogFiles {

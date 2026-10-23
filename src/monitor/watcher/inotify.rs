@@ -73,7 +73,7 @@ impl WatcherTrait for InotifyWatcher {
     /// This does not register services
     fn new(monitor: Weak<Monitor>) -> Result<Self> {
         {
-            let (poller, poller_writer) = Poller::new();
+            let (poller, poller_writer) = Poller::with_pipe();
             let mut ret = Self {
                 poller: poller_writer,
                 join_handle: None,
@@ -157,7 +157,7 @@ impl WatcherThreadContext {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let mut pfds = PollerFds::with_capacity(self.watchs.len());
+        let mut pfds = self.poller.make_pfds(self.watchs.len());
         let mut update_pfds = true;
 
         loop {
@@ -168,7 +168,10 @@ impl WatcherThreadContext {
                 update_pfds = false;
             }
 
-            let wake_word = self.poller.poll(&mut pfds).context("failed to poll")?;
+            let wake_word = self
+                .poller
+                .poll(&mut pfds, None)
+                .context("failed to poll")?;
             tracing::trace!(?wake_word, events = ?DebugIter::new(pfds.iter()), "watcher awaken");
 
             for (fd, flags) in pfds.iter() {

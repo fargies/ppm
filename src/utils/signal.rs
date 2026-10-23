@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Write},
     ops::Deref,
     ptr::{null, null_mut},
     sync::LazyLock,
@@ -57,6 +57,9 @@ pub const SIGCONT: Signal = Signal(libc::SIGCONT);
 pub const SIGKILL: Signal = Signal(libc::SIGKILL);
 pub const SIGINT: Signal = Signal(libc::SIGINT);
 pub const SIGHUP: Signal = Signal(libc::SIGHUP);
+pub const SIGURG: Signal = Signal(libc::SIGURG);
+pub const SIGIO: Signal = Signal(libc::SIGIO);
+pub const SIGPIPE: Signal = Signal(libc::SIGPIPE);
 
 static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     SignalSet(unsafe {
@@ -140,6 +143,9 @@ impl Debug for Signal {
             libc::SIGCONT => f.write_str("SIGCONT"),
             libc::SIGKILL => f.write_str("SIGKILL"),
             libc::SIGINT => f.write_str("SIGINT"),
+            libc::SIGURG => f.write_str("SIGURG"),
+            libc::SIGIO => f.write_str("SIGIO"),
+            libc::SIGPIPE => f.write_str("SIGPIPE"),
             sig => write!(f, "SIG({})", sig),
         }
         // f.write_str(")")
@@ -156,12 +162,18 @@ pub struct SignalSet(pub libc::sigset_t);
 
 impl Debug for SignalSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("SignalSet")
-            .field(&format_args!("{:X}", unsafe {
-                #[allow(clippy::unnecessary_cast)] /* depends on [libc::sigset_t] implementation */
-                *(&self.0 as *const _ as *const u32)
-            }))
-            .finish()
+        f.write_str("SignalSet(")?;
+        if self == FULL_SET.deref() {
+            f.write_str("FULL")?;
+        } else {
+            for (idx, sig) in self.iter().enumerate() {
+                if idx != 0 {
+                    f.write_char('|')?;
+                }
+                sig.fmt(f)?;
+            }
+        }
+        f.write_char(')')
     }
 }
 
@@ -252,7 +264,7 @@ impl SignalSet {
         }
     }
 
-    #[tracing::instrument(level = "TRACE")]
+    #[tracing::instrument(level = "TRACE", skip(self))]
     pub fn restore(&self) -> Result<()> {
         for sig in self {
             sig.restore()

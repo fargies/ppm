@@ -39,7 +39,10 @@ use dashmap::DashMap;
 use crate::{
     service::{SERVICE_ID_INVALID, ServiceId},
     utils::{
-        Buffer, Chain, debug::DebugIter, poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter}, serializers::human
+        Buffer, Chain,
+        debug::DebugIter,
+        poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter},
+        serializers::human,
     },
 };
 
@@ -159,7 +162,7 @@ impl Logger {
         T: Into<LoggerOptions>,
     {
         let options = options.into();
-        let (poller, tx) = Poller::new();
+        let (poller, tx) = Poller::with_pipe();
         let mut ret = Self {
             path: Arc::new(options.path),
             auto_date: options.auto_date,
@@ -205,7 +208,12 @@ impl Logger {
                 name,
                 self.max_file_size,
                 self.max_files,
-            )).then_mut(|p| if !self.auto_date { p.auto_date.disable(); })
+            ))
+            .then_mut(|p| {
+                if !self.auto_date {
+                    p.auto_date.disable();
+                }
+            }),
         };
         // ensure log file can be created, don't create the pump otherwise
         pump.output.rotate()?;
@@ -270,7 +278,7 @@ impl LoggerThreadContext {
 
     pub fn run(&mut self) -> Result<()> {
         let logs = Arc::clone(&self.logs);
-        let mut pfds = PollerFds::with_capacity(logs.len() * 3);
+        let mut pfds = self.poller.make_pfds(logs.len() * 3);
         let mut pfds_map = HashMap::with_capacity(logs.len() * 3);
         loop {
             let _span = tracing::info_span!(parent: None, "logger").entered();
@@ -281,7 +289,10 @@ impl LoggerThreadContext {
                 fds = ?DebugIter::new(pfds.inner().iter().map(|p| p.fd)),
                 "waiting on"
             );
-            let wake_word = self.poller.poll(&mut pfds).context("failed to poll")?;
+            let wake_word = self
+                .poller
+                .poll(&mut pfds, None)
+                .context("failed to poll")?;
             tracing::trace!(?wake_word, events = ?DebugIter::new(pfds.iter()), "logger awaken");
 
             for (fd, flags) in pfds.iter() {

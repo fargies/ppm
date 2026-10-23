@@ -27,13 +27,15 @@ use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, c_short, nfds_t, poll, p
 use std::{
     io::{PipeReader, PipeWriter, Read, Write, pipe},
     os::fd::{AsRawFd, RawFd},
+    time::Duration,
 };
 
 use crate::utils::libc::check;
 
 /// Basic structure to help polling threads implementation
+#[derive(Default)]
 pub struct Poller {
-    rx: PipeReader,
+    rx: Option<PipeReader>,
 }
 
 bitflags::bitflags! {
@@ -48,17 +50,25 @@ bitflags::bitflags! {
     }
 }
 
+impl PollerFlags {
+    /// Test if given flag has `ERR|HUP|NVAL` bit set
+    /// This doesn't mean that `IN|OUT` are not also set
+    pub fn has_error(&self) -> bool {
+        self.intersects(PollerFlags::from_bits_retain(POLLERR | POLLHUP | POLLNVAL))
+    }
+}
+
 /// Set of file-descriptors to watch
 pub struct PollerFds {
     pfds: Vec<pollfd>,
-    events: Option<usize>,
+    pub events: Option<usize>,
 }
 
 impl PollerFds {
     /// Always add extra-room for the event pipe
-    pub fn with_capacity(capacity: usize) -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
-            pfds: Vec::with_capacity(capacity + 1),
+            pfds: Vec::with_capacity(capacity),
             events: None,
         }
     }
@@ -77,6 +87,12 @@ impl PollerFds {
             events: flags.bits(),
             revents: 0,
         })
+    }
+
+    pub fn pop(&mut self) -> Option<(RawFd, PollerFlags)> {
+        self.pfds
+            .pop()
+            .map(|v| (v.fd, PollerFlags::from_bits_truncate(v.events)))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (RawFd, PollerFlags)> {
@@ -98,31 +114,69 @@ impl PollerFds {
 }
 
 impl Poller {
-    pub fn new() -> (Self, PollerWriter) {
+    /// Create a control pipe for this poller
+    pub fn make_pipe(&mut self) -> PollerWriter {
         let (rx, tx) = pipe().expect("failed to create pipe");
-        (Self { rx }, PollerWriter(tx))
+        self.rx = Some(rx);
+        PollerWriter(tx)
     }
 
-    pub fn poll(&mut self, pfds: &mut PollerFds) -> Result<Option<PollerWord>> {
-        pfds.push(&self.rx, PollerFlags::IN);
-        let ret = unsafe { poll(pfds.pfds.as_mut_ptr(), pfds.pfds.len() as nfds_t, -1) };
-        check(ret.min(0)).context("failed to poll")?;
-        if pfds.pfds.pop().is_some_and(|x| x.revents != 0) {
-            pfds.events = Some((ret - 1) as usize);
-            Ok(self.get_word())
+    pub fn with_pipe() -> (Self, PollerWriter) {
+        let mut poller = Self::default();
+        let writer = poller.make_pipe();
+        (poller, writer)
+    }
+
+    /// Create [PollerFds] for this poller
+    pub fn make_pfds(&self, capacity: usize) -> PollerFds {
+        if self.rx.is_some() {
+            PollerFds::with_capacity(capacity + 1)
         } else {
-            pfds.events = Some(ret as usize);
-            Ok(None)
+            PollerFds::with_capacity(capacity)
         }
+    }
+
+    pub fn poll(
+        &mut self,
+        pfds: &mut PollerFds,
+        timeout: Option<Duration>,
+    ) -> Result<Option<PollerWord>> {
+        let timeout = timeout.map(|d| d.as_millis() as libc::c_int).unwrap_or(-1);
+        let has_pipe = match self.rx.as_ref() {
+            Some(rx) => {
+                pfds.push(rx, PollerFlags::IN);
+                true
+            }
+            None => false,
+        };
+
+        let ret = unsafe { poll(pfds.pfds.as_mut_ptr(), pfds.pfds.len() as nfds_t, timeout) };
+        check(ret.min(0)).context("failed to poll")?;
+        if has_pipe {
+            let rx = pfds.pfds.pop().unwrap();
+
+            if rx.revents != 0 {
+                pfds.events = Some((ret - 1) as usize);
+                if rx.revents & POLLHUP != 0 {
+                    return Ok(Some(PollerWord::Exit));
+                } else {
+                    return Ok(self.get_word());
+                }
+            }
+        }
+
+        pfds.events = Some(ret as usize);
+        Ok(None)
     }
 
     fn get_word(&mut self) -> Option<PollerWord> {
         let mut wake_word = [0u8; 1];
-        if self.rx.read(&mut wake_word).unwrap_or(0) == 1 {
-            Some(wake_word[0].into())
-        } else {
-            None
-        }
+        self.rx
+            .as_mut()
+            .and_then(|rx| match rx.read(&mut wake_word).unwrap_or(0) {
+                1 => Some(wake_word[0].into()),
+                _ => None,
+            })
     }
 }
 
@@ -193,18 +247,18 @@ mod tests {
 
     impl PollerExample {
         pub fn new() -> Self {
-            let (mut poller, poller_writer) = Poller::new();
+            let (mut poller, poller_writer) = Poller::with_pipe();
             let (mut rx, tx) = pipe().expect("failed to create pipe");
 
             let join_handle = std::thread::spawn(move || {
-                let mut pfds = PollerFds::with_capacity(2);
+                let mut pfds = poller.make_pfds(2);
                 let mut out = Vec::with_capacity(4);
 
                 loop {
                     pfds.clear();
                     pfds.push(&rx, PollerFlags::IN | PollerFlags::ERR);
 
-                    let wake_word = poller.poll(&mut pfds).expect("failed to poll");
+                    let wake_word = poller.poll(&mut pfds, None).expect("failed to poll");
                     tracing::trace!(?wake_word, events = ?DebugIter::new(pfds.iter()), "poller event received");
 
                     for (fd, flags) in pfds.iter() {

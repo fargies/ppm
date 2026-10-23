@@ -113,11 +113,15 @@ impl Monitor {
         // block signal before spawning threads to apply mask to all threads
         (SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGINT).block()?;
 
-        let pid = getpid();
-        if pid != getpgid(pid)
-            && let Err(err) = setsid()
-        {
-            tracing::error!(?err, "setsid failed");
+        if std::env::var("PPM_NO_SESSION").is_ok_and(|v| !v.is_empty()) {
+            tracing::info!("ppm session disabled");
+        } else {
+            let pid = getpid();
+            if pid != getpgid(pid)
+                && let Err(err) = setsid()
+            {
+                tracing::error!(?err, "setsid failed");
+            }
         }
         #[cfg(target_os = "linux")]
         {
@@ -265,18 +269,10 @@ impl Monitor {
                 }
                 signal @ (SIGTERM | SIGINT) => {
                     tracing::info!("termination requested ({:?})", signal);
-                    // timer.stop()?;
                     for service in self.services.iter() {
-                        if let Some(pid) = service.info().pid {
-                            tracing::trace!(
-                                id = service.id,
-                                name = service.name,
-                                pid,
-                                "stopping service"
-                            );
-                            let _ = Signal::kill(pid, SIGTERM);
-                        }
+                        service.stop();
                     }
+                    tracing::info!("terminated ({:?})", signal);
                     return Ok(());
                 }
                 signal => {
