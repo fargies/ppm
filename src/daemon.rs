@@ -24,7 +24,7 @@
 use anyhow::Result;
 use dirs::{config_local_dir, home_dir};
 use ppm::{
-    api::DEFAULT_SERVER_ADDR,
+    api::get_server_addr,
     cmdline,
     monitor::{
         Monitor,
@@ -37,7 +37,6 @@ use ppm::{
 };
 use std::{
     env::{self, current_dir},
-    net::SocketAddr,
     path::PathBuf,
     sync::Arc,
 };
@@ -81,11 +80,6 @@ fn main() -> Result<()> {
     }
     tracing_init(std::io::stdout, Some("info"))?;
 
-    let addr = std::env::var("PPM_LISTEN")
-        .ok()
-        .and_then(|x| x.parse::<SocketAddr>().ok())
-        .unwrap_or(DEFAULT_SERVER_ADDR);
-
     Monitor::init()?;
 
     tracing::info!("starting daemon");
@@ -106,7 +100,7 @@ fn main() -> Result<()> {
         None => None,
     };
 
-    let server = cmdline::Server::new(Arc::clone(&monitor), addr)?;
+    let server = cmdline::Server::new(Arc::clone(&monitor), get_server_addr())?;
     std::thread::Builder::new()
         .name("server".into())
         .spawn(move || server.run())?;

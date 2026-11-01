@@ -24,3 +24,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const DEFAULT_SERVER_ADDR: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5000);
+
+pub fn get_server_addr() -> SocketAddr {
+    std::env::var("PPM_LISTEN")
+        .ok()
+        .and_then(|x| x.parse::<SocketAddr>().ok())
+        .unwrap_or(DEFAULT_SERVER_ADDR)
+}
