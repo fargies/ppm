@@ -23,22 +23,27 @@
 
 #![allow(dead_code)]
 
-use anyhow::Result;
 use libc::{c_int, pid_t};
+use std::io::Result as IoResult;
 
 mod fcntl;
 pub use fcntl::{Fcntl, FdFlags};
 
+mod dup;
+pub use dup::Dup;
+
+pub mod unix_datagram;
+
 /// Set session-id
 ///
 /// Returns the new session-id
-pub fn setsid() -> Result<pid_t> {
+pub fn setsid() -> IoResult<pid_t> {
     let ret = unsafe { libc::setsid() };
     check(ret.min(0)).and(Ok(ret))
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_child_subreaper(pid: pid_t) -> Result<()> {
+pub fn set_child_subreaper(pid: pid_t) -> IoResult<()> {
     check(unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, pid) })
 }
 
@@ -55,7 +60,7 @@ pub fn getpgid(pid: pid_t) -> pid_t {
 }
 
 /// Invoke waitpid in non-blocking mode
-#[tracing::instrument(level = "TRACE", ret)]
+#[tracing::instrument(level = "TRACE")]
 pub fn waitpid(pid: pid_t, blocking: bool) -> Option<(pid_t, c_int)> {
     let mut status: c_int = 0;
     let ret = unsafe {
@@ -65,15 +70,20 @@ pub fn waitpid(pid: pid_t, blocking: bool) -> Option<(pid_t, c_int)> {
             if blocking { 0 } else { libc::WNOHANG } | libc::WUNTRACED, /* [libc::WUNTRACED] is required to detect SIGSTOP */
         )
     };
-    if ret > 0 { Some((ret, status)) } else { None }
+    if ret > 0 {
+        tracing::trace!(pid = ret, status);
+        Some((ret, status))
+    } else {
+        None
+    }
 }
 
 /// assert for libc functions
-pub fn check(res: c_int) -> Result<()> {
+pub fn check(res: c_int) -> IoResult<()> {
     if res != 0 {
         let err = std::io::Error::last_os_error();
         tracing::trace_span!("libc_check", ?err);
-        Err(err.into())
+        Err(err)
     } else {
         Ok(())
     }

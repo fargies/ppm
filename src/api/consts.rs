@@ -20,7 +20,10 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 pub const DEFAULT_SERVER_ADDR: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5000);
@@ -30,4 +33,11 @@ pub fn get_server_addr() -> SocketAddr {
         .ok()
         .and_then(|x| x.parse::<SocketAddr>().ok())
         .unwrap_or(DEFAULT_SERVER_ADDR)
+}
+
+pub fn get_forward_socket_path() -> PathBuf {
+    match dirs::runtime_dir().or(dirs::cache_dir()) {
+        Some(runtime) => runtime.join("ppm-web.unix"),
+        None => PathBuf::from("/var/run/ppm-web.unix"),
+    }
 }

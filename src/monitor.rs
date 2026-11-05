@@ -25,6 +25,12 @@ use anyhow::Result;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::{
+    net::{SocketAddr, TcpStream},
+    os::{
+        fd::{AsRawFd, IntoRawFd},
+        unix::net::UnixDatagram,
+    },
+    process::Stdio,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -34,7 +40,11 @@ use crate::{
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
-        libc::{getpgid, getpid, gettid, setsid, waitpid},
+        libc::{
+            Dup, getpgid, getpid, gettid, setsid,
+            unix_datagram::{ControlRequest, SocketControlTrait},
+            waitpid,
+        },
         serializers::{human, instant::RefTimePoint},
         signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
     },
@@ -69,6 +79,8 @@ pub struct Monitor {
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logger: Option<Logger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_service: Option<ServiceId>,
     #[serde(skip)]
     pub scheduler: Scheduler,
     #[serde(skip)]
@@ -81,6 +93,8 @@ pub struct Monitor {
     start_time: Instant,
     #[serde(skip)]
     tid: Mutex<Option<libc::pthread_t>>,
+    #[serde(skip)]
+    http_unix_sock: Mutex<Option<Arc<(UnixDatagram, UnixDatagram)>>>,
 }
 
 impl Default for Monitor {
@@ -92,12 +106,14 @@ impl Default for Monitor {
             clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
             logger: Default::default(),
+            http_service: Default::default(),
             scheduler: Default::default(),
             watcher: Default::default(),
             sysinfo: Default::default(),
             _stats: Default::default(),
             start_time: Instant::now(),
             tid: Default::default(),
+            http_unix_sock: Default::default(),
         }
     }
 }
@@ -179,7 +195,7 @@ impl Monitor {
                     if let Some(service) = self.get(&id)
                         && service.info().active
                     {
-                        service.restart(self.logger.as_ref());
+                        service.restart(self.logger.as_ref(), self.make_stdin(id));
                         self.scheduler.reschedule(&service);
                     } else {
                         tracing::warn!(id, "unknown service");
@@ -190,7 +206,7 @@ impl Monitor {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
                             self.remove_watch(&service.id);
-                            service.restart(self.logger.as_ref());
+                            service.restart(self.logger.as_ref(), self.make_stdin(id));
                             self.add_watch(&service)
                                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
                         } else {
@@ -448,6 +464,58 @@ impl Monitor {
     pub fn is_running(&self) -> bool {
         self.tid.lock().unwrap().is_some()
     }
+
+    fn make_stdin(&self, id: ServiceId) -> Option<Stdio> {
+        if self.http_service.is_some_and(|http_sid| http_sid == id) {
+            match self.get_http_unix_sock() {
+                Ok(socketpair) => {
+                    tracing::debug!("forwarding unix-socket as stdin");
+                    return Some(Stdio::from(socketpair.1.dup().ok()?));
+                }
+                Err(err) => tracing::error!(?err, "failed to get socketpair"),
+            }
+        }
+        None
+    }
+
+    fn get_http_unix_sock(&self) -> Result<Arc<(UnixDatagram, UnixDatagram)>> {
+        let mut guard = self.http_unix_sock.lock().unwrap();
+
+        if guard.is_none() {
+            let sock = UnixDatagram::pair()?;
+            tracing::debug!(
+                reader = sock.1.as_raw_fd(),
+                writer = sock.0.as_raw_fd(),
+                "unix datagram socketpair created"
+            );
+            sock.1.set_nonblocking(true)?;
+            *guard = Some(Arc::new(sock));
+        }
+        Ok(Arc::clone(guard.as_ref().unwrap()))
+    }
+
+    pub fn forward(
+        &self,
+        service: &Service,
+        stream: TcpStream,
+        remote_addr: &SocketAddr,
+    ) -> Result<()> {
+        let socketpair = self.get_http_unix_sock()?;
+
+        if service.info().pid.is_none() {
+            self.restart(service);
+        }
+
+        let addr = serde_json::to_vec(remote_addr)?;
+        socketpair
+            .0
+            .sendmsg(addr.as_slice(), &ControlRequest::from(&stream.as_raw_fd()))?;
+        unsafe {
+            /* do not shutdown */
+            libc::close(stream.into_raw_fd());
+        }
+        Ok(())
+    }
 }
 
 extern "C" fn guard_sighandler(sig: libc::c_int) {
@@ -494,7 +562,7 @@ mod tests {
         let mon = Arc::<Monitor>::default();
         mon.insert(Service::new("test_stop", Command::new("ls", ["-la"])));
         mon.insert(Service::new("test_crash", Command::new("false", ["-la"])));
-        mon.services.iter().for_each(|s| s.start(None));
+        mon.services.iter().for_each(|s| s.start(None, None));
 
         wait_for!({
             mon.on_sigchld();
@@ -523,12 +591,13 @@ mod tests {
         sigset.block()?;
         let srv = Service::new("test_crash", Command::new("false", ["-la"]));
 
-        srv.start(None);
+        srv.start(None, None);
 
         assert_eq!(sigset.wait()?, SIGCHLD);
         Monitor::default().on_sigchld();
 
-        sigset.restore()
+        sigset.restore()?;
+        Ok(())
     }
 
     #[test]

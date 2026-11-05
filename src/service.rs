@@ -156,19 +156,21 @@ impl Service {
     /// start a service
     ///
     /// Alias on [Service::restart]
-    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self, logger))]
-    pub fn start<'a, L>(&self, logger: L)
+    #[tracing::instrument(level = "TRACE", fields(name=self.name, id=self.id), skip(self, logger, stdin))]
+    pub fn start<'a, L, I>(&self, logger: L, stdin: I)
     where
         L: Into<Option<&'a Logger>>,
+        I: Into<Option<process::Stdio>>,
     {
-        self.restart(logger)
+        self.restart(logger, stdin)
     }
 
     /// Spawn/restart a service
-    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self, logger), ret(level = "TRACE"))]
-    pub fn restart<'a, L>(&self, logger: L)
+    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self, logger, stdin), ret(level = "TRACE"))]
+    pub fn restart<'a, L, I>(&self, logger: L, stdin: I)
     where
         L: Into<Option<&'a Logger>>,
+        I: Into<Option<process::Stdio>>,
     {
         if self.info().pid.is_some() {
             self.stop();
@@ -195,9 +197,10 @@ impl Service {
         let mut cmd = process::Command::new(launcher);
         cmd.arg(self.command.path.as_str())
             .args(&self.command.args)
-            .stdin(process::Stdio::null())
+            .stdin(stdin.into().unwrap_or(process::Stdio::null()))
             .stdout(out)
             .stderr(err);
+
         if let Some(workdir) = self.workdir.as_ref() {
             cmd.current_dir(workdir);
         }
@@ -463,7 +466,7 @@ mod tests {
     fn spawn() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("ls", ["-la"]));
-        service.start(None);
+        service.start(None, None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
@@ -490,7 +493,7 @@ mod tests {
     fn does_not_exist() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("does_not_exist", ["does_not_exist"]));
-        service.start(None);
+        service.start(None, None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
@@ -517,7 +520,7 @@ mod tests {
     fn stop() -> Result<()> {
         (SignalSet::empty() + SIGCHLD).block()?;
         let service = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
-        service.start(None);
+        service.start(None, None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(service);
 
@@ -558,7 +561,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let mut srv = Service::new("test", Command::new("sh", ["-c", "sleep 300"]));
         srv.workdir = temp_dir.to_str().map(str::to_owned);
-        srv.start(None);
+        srv.start(None, None);
         let mon = Arc::new(Monitor::default());
         let service = mon.insert(srv);
 
@@ -601,7 +604,7 @@ mod tests {
                     Command::new("sh", ["-c", "trap 'child died' EXIT; sleep 300"]),
                 );
                 /* fork/exec */
-                service.restart(None);
+                service.restart(None, None);
                 write!(fd, "{}", service.info().pid.expect("should have spawned"))
                     .expect("failed to write");
                 drop(fd);

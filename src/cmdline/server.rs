@@ -24,6 +24,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde_yaml_ng as yaml;
 use std::{
+    collections::HashSet,
     io::BufReader,
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
     os::fd::{FromRawFd, IntoRawFd},
@@ -49,6 +50,11 @@ use crate::api::{Action, ActionResult, Reply, Request, RequestId};
 
 const MAX_CONNECTIONS: usize = 16;
 static PPM_CLI_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| find_ppm_tool("ppm"));
+static HTTP_METHODS_3: LazyLock<HashSet<&[u8; 3]>> = LazyLock::new(|| {
+    HashSet::from([
+        b"GET", b"QUE", b"HEA", b"OPT", b"TRA", b"PUT", b"DEL", b"POS", b"PAT", b"CON",
+    ])
+});
 
 #[derive(Debug)]
 pub struct Server {
@@ -95,31 +101,47 @@ impl Server {
             self.running.store(true, Ordering::Relaxed);
 
             match self.socket.accept() {
-                Ok(stream) => {
+                Ok((stream, remote_addr)) => {
                     tracing::trace!("connection opened");
                     if !self.running.load(Ordering::Relaxed) {
                         tracing::info!("shutdown request");
-                        stream.0.shutdown(Shutdown::Both).unwrap_or(());
+                        stream.shutdown(Shutdown::Both).unwrap_or(());
                         return Ok(());
                     }
                     let (token, count) = ServerToken::new(&self.connections);
                     if count > MAX_CONNECTIONS {
-                        tracing::error!(client = ?stream.1, "connection rejected");
-                        if let Err(error) = stream.0.shutdown(Shutdown::Both) {
-                            tracing::error!(client = ?stream.1, ?error, "shutdown failed");
+                        tracing::error!(?remote_addr, "connection rejected");
+                        if let Err(error) = stream.shutdown(Shutdown::Both) {
+                            tracing::error!(?remote_addr, ?error, "shutdown failed");
                         }
                     } else {
                         let monitor = Arc::clone(&self.monitor);
                         std::thread::spawn(move || {
-                            if let Err(error) = Server::handle(&stream.0, monitor) {
-                                let _ = serde_json::to_writer(
-                                    &stream.0,
-                                    &ActionResult::<()>::from(error),
-                                );
+                            let _span = tracing::info_span!(parent: None, "server:run").entered();
+                            if let Some(service) = monitor.http_service.as_ref()
+                                && Server::peek_http_proto(&stream)
+                            {
+                                tracing::debug!(?remote_addr, "http request detected");
+                                drop(token);
+                                if let Some(service) = monitor.get(service) {
+                                    if let Err(err) = monitor.forward(&service, stream, &remote_addr) {
+                                        tracing::error!(?err, "failed to forward http request");
+                                    }
+                                } else {
+                                    tracing::error!(service, "no such http service");
+                                    stream.shutdown(Shutdown::Both).unwrap_or(());
+                                }
+                            } else {
+                                if let Err(error) = Server::handle(&stream, monitor) {
+                                    let _ = serde_json::to_writer(
+                                        &stream,
+                                        &ActionResult::<()>::from(error),
+                                    );
+                                }
+                                tracing::trace!("connection closed");
+                                stream.shutdown(Shutdown::Both).unwrap_or(());
+                                drop(token);
                             }
-                            tracing::trace!("connection closed");
-                            stream.0.shutdown(Shutdown::Both).unwrap_or(());
-                            drop(token);
                         });
                     }
                 }
@@ -159,6 +181,15 @@ impl Server {
         match service.parse::<ServiceId>() {
             Ok(id) => id == LOGGER_DAEMON_ID,
             Err(_) => service == LOGGER_DAEMON_NAME,
+        }
+    }
+
+    fn peek_http_proto(stream: &TcpStream) -> bool {
+        let mut buf = [0u8; 3];
+        if let Ok(3) = stream.peek(&mut buf) {
+            HTTP_METHODS_3.contains(&buf)
+        } else {
+            false
         }
     }
 
@@ -349,10 +380,21 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        ops::Deref,
+        os::{fd::AsRawFd, unix::net::UnixDatagram},
+    };
+
     use crate::{
+        api::get_forward_socket_path,
         cmdline::Client,
         service::{Command, Service},
-        utils::OnDrop,
+        utils::{
+            OnDrop, kill_on_drop,
+            libc::unix_datagram::{ControlMessage, ControlRequest, SocketControlTrait},
+            wait_for,
+        },
     };
 
     use super::*;
@@ -371,6 +413,7 @@ mod tests {
             let server = Arc::clone(&server);
             std::thread::spawn(move || server.run())
         };
+        wait_for!(server.running.load(Ordering::Relaxed))?;
         let _drop_guard = OnDrop::new(|| {
             server.stop().unwrap();
             join_handle.join().unwrap().unwrap();
@@ -381,6 +424,66 @@ mod tests {
             .run(&Action::Info { service: None })
             .expect("command failed");
 
+        Ok(())
+    }
+
+    #[test]
+    #[serial(waitpid)]
+    fn http_forward() -> Result<()> {
+        let mut monitor = Monitor::new();
+        let id = monitor
+            .insert(Service::new("test", Command::new("sleep", ["30"])))
+            .id;
+        Arc::get_mut(&mut monitor).unwrap().http_service = Some(id);
+        let server = Arc::new(Server::new(Arc::clone(&monitor), "127.0.0.1:0")?);
+        let addr = server.socket.local_addr()?;
+
+        let server_join_handle = {
+            let server = Arc::clone(&server);
+            std::thread::spawn(move || server.run())
+        };
+        wait_for!(server.running.load(Ordering::Relaxed))?;
+
+        let monitor_join_handle = {
+            let monitor = Arc::clone(&monitor);
+            std::thread::spawn(move || monitor.run())
+        };
+        let _monitor_drop_guard = kill_on_drop(monitor_join_handle);
+        let _drop_guard = OnDrop::new(|| {
+            server.stop().unwrap();
+            tracing::warn!("stopping");
+            server_join_handle.join().unwrap().unwrap();
+            tracing::warn!("stopped");
+        });
+
+        let mut client = Client::connect(addr)?;
+
+        client.write_all(b"GET / HTTP/1.1\r\n\r\n")?;
+        /* start a server after request is sent
+         * (on purpose to delay unix socket creation) */
+        let sock_path = get_forward_socket_path();
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = std::fs::remove_file(&sock_path);
+        let receiver = UnixDatagram::bind(get_forward_socket_path())?;
+
+        let mut ctrl = ControlRequest::new();
+        assert_eq!(receiver.recvmsg(&mut [0; 10], &mut ctrl)?, 0);
+        assert_eq!(ctrl.iter().count(), 1);
+        for msg in ctrl.iter() {
+            if let ControlMessage::Rights(fds) = msg {
+                assert_eq!(fds.len(), 1);
+                let mut stream = unsafe { TcpStream::from_raw_fd(fds.first().copied().unwrap()) };
+                stream.write_all(b"reply")?;
+                stream.shutdown(Shutdown::Both)?;
+            }
+        }
+
+        let mut buf = Vec::<u8>::with_capacity(10);
+        client
+            .read_to_end(&mut buf)
+            .context("failed to read from client")?;
+        assert_eq!(buf.as_slice(), b"reply");
+        receiver.shutdown(Shutdown::Both);
         Ok(())
     }
 }
