@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     tracing::trace!(bin, "starting process");
     let mut cmd = process::Command::new(bin);
     cmd.args(args)
-        .stdin(process::Stdio::null())
+        .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     drop(_span);

@@ -23,23 +23,16 @@
 use std::os::fd::AsRawFd;
 
 use super::check;
-use anyhow::Result;
 use libc::{
-    O_ACCMODE, O_APPEND, O_CLOEXEC, O_CREAT, O_DIRECTORY, O_DSYNC, O_EXCL, O_NOCTTY, O_NOFOLLOW,
-    O_NONBLOCK, O_RDONLY, O_RDWR, O_SYNC, O_TRUNC, O_WRONLY, c_int,
+    O_ACCMODE, O_DIRECTORY, O_DSYNC, O_EXCL, O_NONBLOCK, O_RDONLY, O_RDWR, O_SYNC, O_WRONLY, c_int,
 };
+use std::io::Result as IoResult;
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FdFlags: c_int {
-        const CLOEXEC = O_CLOEXEC; // the file descriptor upon execution of an exec family function.
-        const CREAT = O_CREAT; // Create file if it does not exist.
         const DIRECTORY = O_DIRECTORY; // Fail if file is a non-directory file.
         const EXCL = O_EXCL; // Exclusive use flag.
-        const NOCTTY = O_NOCTTY; // Do not assign controlling terminal.
-        const NOFOLLOW = O_NOFOLLOW; // Do not follow symbolic links.
-        const TRUNC = O_TRUNC; // Truncate flag.
-        const APPEND = O_APPEND; // Set append mode.
         const DSYNC = O_DSYNC; // Write according to synchronized I/O data integrity completion.
         const NONBLOCK = O_NONBLOCK; // Non-blocking mode.
         const SYNC = O_SYNC; // Write according to synchronized I/O file integrity completion.
@@ -51,34 +44,73 @@ bitflags::bitflags! {
 }
 
 pub trait Fcntl {
-    fn get_flags(&self) -> Result<FdFlags>;
+    fn get_flags(&self) -> IoResult<FdFlags>;
 
-    fn set_flags(&self, flags: FdFlags) -> Result<()>;
+    fn set_flags(&self, flags: FdFlags) -> IoResult<()>;
 
     #[inline]
-    fn add_flag(&self, flag: FdFlags) -> Result<()> {
-        self.set_flags(self.get_flags()? | flag)
+    fn add_flag(&self, flag: FdFlags) -> IoResult<()> {
+        let actual = self.get_flags()?;
+        if !actual.contains(flag) {
+            self.set_flags(actual | flag)?;
+        }
+        Ok(())
     }
 
     #[inline]
-    fn remove_flag(&self, flag: FdFlags) -> Result<()> {
-        self.set_flags(self.get_flags()?.difference(flag))
+    fn remove_flag(&self, flag: FdFlags) -> IoResult<()> {
+        let actual = self.get_flags()?;
+        if actual.intersects(flag) {
+            self.set_flags(actual.difference(flag))?;
+        }
+        Ok(())
     }
+
+    fn is_cloexec(&self) -> IoResult<bool>;
+
+    fn set_cloexec(&self, value: bool) -> IoResult<()>;
 }
 
 impl<T> Fcntl for T
 where
     T: AsRawFd,
 {
-    fn get_flags(&self) -> Result<FdFlags> {
+    fn get_flags(&self) -> IoResult<FdFlags> {
         unsafe {
             let flags = libc::fcntl(self.as_raw_fd(), libc::F_GETFL);
             check(flags.min(0)).and(Ok(FdFlags::from_bits_retain(flags)))
         }
     }
 
-    fn set_flags(&self, flags: FdFlags) -> Result<()> {
+    fn set_flags(&self, flags: FdFlags) -> IoResult<()> {
         unsafe { check(libc::fcntl(self.as_raw_fd(), libc::F_SETFL, flags)) }
+    }
+
+    fn is_cloexec(&self) -> IoResult<bool> {
+        unsafe {
+            let flags = libc::fcntl(self.as_raw_fd(), libc::F_GETFD);
+            check(flags.min(0)).and(Ok(flags & libc::FD_CLOEXEC != 0))
+        }
+    }
+
+    fn set_cloexec(&self, value: bool) -> IoResult<()> {
+        unsafe {
+            let flags = libc::fcntl(self.as_raw_fd(), libc::F_GETFD);
+            check(flags.min(0))?;
+            if value {
+                check(libc::fcntl(
+                    self.as_raw_fd(),
+                    libc::F_SETFD,
+                    flags | libc::FD_CLOEXEC,
+                ))
+            } else {
+                check(libc::fcntl(
+                    self.as_raw_fd(),
+                    libc::F_SETFD,
+                    flags & !libc::FD_CLOEXEC,
+                ))
+            }
+        }
     }
 }
 
@@ -106,6 +138,14 @@ mod tests {
         tracing::info!(flags = ?temp.as_raw_fd().get_flags()?);
         assert!(!temp.get_flags()?.contains(FdFlags::NONBLOCK));
 
+        Ok(())
+    }
+
+    #[test]
+    fn cloexec() -> Result<()> {
+        let temp = MkTemp::file("fcntl")?;
+
+        assert!(temp.as_raw_fd().is_cloexec()?);
         Ok(())
     }
 }

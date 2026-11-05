@@ -25,11 +25,7 @@ use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use serde::de::DeserializeOwned;
 use std::{
-    collections::HashMap,
-    io::{BufReader, stdout},
-    net::{TcpStream, ToSocketAddrs},
-    path::PathBuf,
-    time::{Duration, Instant},
+    collections::HashMap, io::{BufReader, stdout}, net::{TcpStream, ToSocketAddrs}, ops::{Deref, DerefMut}, path::PathBuf, time::{Duration, Instant},
 };
 use tabled::{
     Table, Tabled,
@@ -69,9 +65,7 @@ impl Client {
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         Ok(Self(stream))
     }
-}
 
-impl Client {
     #[tracing::instrument(skip(self), ret(level = "TRACE"), err)]
     /// Invoke a single action
     pub fn invoke<R>(&self, action: &Action) -> Result<R>
@@ -198,6 +192,20 @@ impl Client {
         }
 
         println!("{}", table);
+    }
+}
+
+impl Deref for Client {
+    type Target = TcpStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Client {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

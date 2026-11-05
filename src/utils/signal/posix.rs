@@ -25,7 +25,7 @@
 
 use libc::{timer_t, sigevent, itimerspec ,timer_create, timer_settime, timer_delete};
 use std::{ptr::null_mut, time::Duration};
-use anyhow::Result;
+use std::io::Result as IoResult;
 
 use super::libc_check;
 
@@ -92,14 +92,14 @@ impl Timer {
     }
 
     /// Start the system timer
-    pub fn start(&self) -> Result<()> {
+    pub fn start(&self) -> IoResult<()> {
         libc_check(unsafe { timer_settime(self.id, 0, &self.timerspec, null_mut()) })
     }
 
     /// Stop the system timer
     ///
     /// Sets both interval and duration to zero on the system side
-    pub fn stop(&self) -> Result<()> {
+    pub fn stop(&self) -> IoResult<()> {
         let val = unsafe { std::mem::zeroed::<itimerspec>() };
         libc_check(unsafe { timer_settime(self.id, 0, &val, null_mut()) })
     }

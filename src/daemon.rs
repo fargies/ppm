@@ -79,7 +79,6 @@ fn main() -> Result<()> {
         libc::mallopt(libc::M_ARENA_MAX, 1);
     }
     tracing_init(std::io::stdout, Some("info"))?;
-
     Monitor::init()?;
 
     tracing::info!("starting daemon");

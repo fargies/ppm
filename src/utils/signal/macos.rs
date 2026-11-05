@@ -23,7 +23,7 @@
 
 #![allow(dead_code)]
 
-use anyhow::Result;
+use std::io::Result as IoResult;
 use dispatch2::{
     _dispatch_source_type_timer, DispatchObject, DispatchQueue, DispatchRetained, DispatchSource,
     DispatchTime, GlobalQueueIdentifier,
@@ -111,7 +111,7 @@ impl Timer {
     }
 
     /// Start the system timer
-    pub fn start(&self) -> Result<()> {
+    pub fn start(&self) -> IoResult<()> {
         self.source.suspend();
         let interval = self._interval.as_nanos() as u64;
         self.source.set_timer(
@@ -130,7 +130,7 @@ impl Timer {
     /// Stop the system timer
     ///
     /// Sets both interval and duration to zero on the system side
-    pub fn stop(&self) -> Result<()> {
+    pub fn stop(&self) -> IoResult<()> {
         self.source.cancel();
         Ok(())
     }

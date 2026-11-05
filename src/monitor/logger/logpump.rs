@@ -153,10 +153,11 @@ impl LogPump {
         reader_err.add_flag(FdFlags::NONBLOCK)?;
 
         tracing::trace!(
-            fd_out = reader_out.as_raw_fd(),
-            fd_err = reader_err.as_raw_fd(),
+            reader_out = reader_out.as_raw_fd(),
+            reader_err = reader_err.as_raw_fd(),
             "creating input pipe"
         );
+
         self.input.push(reader_out);
         self.input.push(reader_err);
 

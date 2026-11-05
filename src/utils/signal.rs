@@ -21,13 +21,13 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use anyhow::Result;
 use std::{
     fmt::{Debug, Write},
     ops::Deref,
     ptr::{null, null_mut},
     sync::LazyLock,
 };
+use std::io::Result as IoResult;
 
 #[cfg(target_os = "linux")]
 mod posix;
@@ -76,7 +76,7 @@ static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
 
 impl Signal {
     #[tracing::instrument(level = "TRACE", err, ret)]
-    pub fn kill<S>(pid: libc::pid_t, signal: S) -> Result<()>
+    pub fn kill<S>(pid: libc::pid_t, signal: S) -> IoResult<()>
     where
         S: Into<Signal> + Debug,
     {
@@ -89,7 +89,7 @@ impl Signal {
 
     #[cfg(target_os = "linux")]
     #[tracing::instrument(level = "TRACE", err, ret)]
-    pub fn set_pdeath_sig<S>(signal: S) -> Result<()>
+    pub fn set_pdeath_sig<S>(signal: S) -> IoResult<()>
     where
         S: Into<Signal> + Debug,
     {
@@ -97,7 +97,7 @@ impl Signal {
     }
 
     #[tracing::instrument(level = "TRACE", err, ret)]
-    pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> Result<()>
+    pub fn kill_thread<S>(tid: libc::pthread_t, signal: S) -> IoResult<()>
     where
         S: Into<Signal> + Debug,
     {
@@ -105,19 +105,19 @@ impl Signal {
     }
 
     #[tracing::instrument(level = "TRACE", err)]
-    pub fn set_handler(&self, handler: extern "C" fn(libc::c_int)) -> Result<()> {
+    pub fn set_handler(&self, handler: extern "C" fn(libc::c_int)) -> IoResult<()> {
         let ret = unsafe { libc::signal(self.0, handler as *const () as usize) };
         libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
     }
 
     #[tracing::instrument(level = "TRACE", err)]
-    pub fn restore(&self) -> Result<()> {
+    pub fn restore(&self) -> IoResult<()> {
         let ret = unsafe { libc::signal(self.0, libc::SIG_DFL) };
         libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
     }
 
     #[tracing::instrument(level = "TRACE", err)]
-    pub fn ignore(&self) -> Result<()> {
+    pub fn ignore(&self) -> IoResult<()> {
         let ret = unsafe { libc::signal(self.0, libc::SIG_IGN) };
         libc_check(if ret == libc::SIG_ERR { -1 } else { 0 })
     }
@@ -180,13 +180,13 @@ impl Debug for SignalSet {
 impl SignalSet {
     /// Block signals in the set
     #[tracing::instrument(fields(pid = getpid(), tid = gettid()), level = "TRACE", err, ret)]
-    pub fn block(&self) -> Result<()> {
+    pub fn block(&self) -> IoResult<()> {
         unsafe { libc_check(libc::pthread_sigmask(libc::SIG_BLOCK, &self.0, null_mut())) }
     }
 
     /// Unblock signals in the set
     #[tracing::instrument(fields(pid = getpid(), tid = gettid()), level = "TRACE", err, ret)]
-    pub fn unblock(&self) -> Result<()> {
+    pub fn unblock(&self) -> IoResult<()> {
         unsafe {
             libc_check(libc::pthread_sigmask(
                 libc::SIG_UNBLOCK,
@@ -230,7 +230,7 @@ impl SignalSet {
 
     /// Wait for a (blocked) signal in the set to raise
     #[tracing::instrument(level = "TRACE", ret)]
-    pub fn wait(&self) -> Result<Signal> {
+    pub fn wait(&self) -> IoResult<Signal> {
         unsafe {
             loop {
                 let mut sig: libc::c_int = 0;
@@ -265,7 +265,7 @@ impl SignalSet {
     }
 
     #[tracing::instrument(level = "TRACE", skip(self))]
-    pub fn restore(&self) -> Result<()> {
+    pub fn restore(&self) -> IoResult<()> {
         for sig in self {
             sig.restore()
                 .inspect_err(|err| tracing::error!(?sig, ?err, "failed to reset handler"))?;
@@ -378,7 +378,7 @@ mod tests {
     /// Some signals may not be blocked depending on the platform
     ///
     /// Ensure we can block and unblock a full signalset
-    fn full_set() -> Result<()> {
+    fn full_set() -> IoResult<()> {
         let sigset = SignalSet::full();
         sigset.block()?;
 
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
-    fn pending() -> Result<()> {
+    fn pending() -> IoResult<()> {
         let sigset = SignalSet::empty() + SIGALRM;
         sigset.block()?;
         for sig in &sigset {
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     #[serial(waitpid)]
-    fn timer() -> Result<()> {
+    fn timer() -> IoResult<()> {
         let sigset = SignalSet::empty() + SIGALRM;
         sigset.block()?;
 

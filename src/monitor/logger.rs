@@ -311,7 +311,7 @@ impl LoggerThreadContext {
                     }
                 };
 
-                if let Some(buffer) = if flags.contains(PollerFlags::IN) {
+                if let Some(buffer) = if flags.intersects(PollerFlags::IN) {
                     pump.on_input_ready(fd, self.take_buffer())
                 } else {
                     None
@@ -319,11 +319,15 @@ impl LoggerThreadContext {
                     self.buffers.push_back(buffer);
                 }
 
-                if let Some(buffer) = if flags.contains(PollerFlags::HUP) {
+                if let Some(buffer) = if flags.intersects(PollerFlags::HUP) {
                     pump.on_hup(fd)
-                } else if flags.contains(PollerFlags::ERR) {
+                } else if flags.intersects(PollerFlags::ERR) {
                     pump.on_error(fd)
-                } else if flags.contains(PollerFlags::OUT) {
+                } else if flags.intersects(PollerFlags::NVAL) {
+                    /* consider this as an internal error */
+                    tracing::error!("invalid file descriptor !");
+                    pump.on_error(fd)
+                } else if flags.intersects(PollerFlags::OUT) {
                     pump.on_output_ready(fd)
                 } else {
                     None
@@ -373,7 +377,7 @@ mod tests {
         /* silence ppm-launcher logs to see only sub-command bytes */
         srv.command.env = Some(HashMap::from([("RUST_LOG".into(), "off".into())]));
 
-        srv.restart(&logger);
+        srv.restart(&logger, None);
         wait_for!(
             logger.list_files(srv.id).len() == 1,
             "files:{:?}",
@@ -391,7 +395,7 @@ mod tests {
         )
         .expect("restart should have written additional logs");
 
-        srv.restart(&logger);
+        srv.restart(&logger, None);
         wait_for!(
             logger.list_files(srv.id).first().unwrap().metadata()?.len() as usize
                 == 12 + date_time_len * 2,
