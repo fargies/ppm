@@ -133,7 +133,7 @@ impl ControlRequest {
             let cmsg = &mut *(self.data[data_offset..]
                 .as_mut_ptr()
                 .cast::<libc::cmsghdr>());
-            cmsg.cmsg_len = libc::CMSG_LEN(len as u32) as libc::size_t;
+            cmsg.cmsg_len = libc::CMSG_LEN(len as _) as _;
             let data = libc::CMSG_DATA(cmsg);
             data.copy_from(payload, len);
             cmsg
@@ -153,7 +153,7 @@ impl ControlRequest {
     fn msghdr(&self) -> libc::msghdr {
         let mut msghdr: libc::msghdr = unsafe { zeroed() };
         msghdr.msg_control = self.data.as_ptr() as *mut libc::c_void;
-        msghdr.msg_controllen = self.data.len() as libc::size_t;
+        msghdr.msg_controllen = self.data.len() as _;
         msghdr
     }
 }
