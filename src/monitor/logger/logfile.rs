@@ -26,13 +26,12 @@ use crate::utils::{
 };
 use anyhow::{Result, anyhow};
 use chrono::SecondsFormat;
-use regex::Regex;
 use std::{
     fs::{self, File, remove_file},
     io::Write,
     os::fd::{AsRawFd, RawFd},
     path::PathBuf,
-    sync::{Arc, LazyLock},
+    sync::Arc,
 };
 
 pub const LOGFILE_MAX_SIZE_DEFAULT: u64 = 1024 * 1024 * 20;
@@ -40,8 +39,25 @@ pub const LOGFILE_MAX_FILES_DEFAULT: usize = 3;
 /* RFC3339 length + 1 : `-2345-78-01T34:67:90+23:56.log` */
 const LOGFILE_SUFFIX_LEN: usize = 30;
 
-static LOGFILE_SUFFIX_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"-\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}.log").unwrap());
+fn is_logfile_suffix(s: &str) -> bool {
+    let b = s.as_bytes();
+
+    b.len() == LOGFILE_SUFFIX_LEN
+        && b[0] == b'-'
+        && b[5] == b'-'
+        && b[8] == b'-'
+        && b[11] == b'T'
+        && b[14] == b':'
+        && b[17] == b':'
+        && b[20] == b'+'
+        && b[23] == b':'
+        && b[26..] == *b".log"
+        && [
+            1, 2, 3, 4, 6, 7, 9, 10, 12, 13, 15, 16, 18, 19, 21, 22, 24, 25,
+        ]
+        .iter()
+        .all(|&i| b[i].is_ascii_digit())
+}
 
 pub struct LogFile {
     file: Option<File>,
@@ -95,7 +111,7 @@ impl LogFile {
     fn is_match(&self, filename: &str) -> bool {
         if filename.len() == self.log_name.len() + LOGFILE_SUFFIX_LEN {
             let (pre, suf) = filename.split_at(self.log_name.len());
-            pre == self.log_name && LOGFILE_SUFFIX_RE.is_match(suf)
+            pre == self.log_name && is_logfile_suffix(suf)
         } else {
             false
         }
