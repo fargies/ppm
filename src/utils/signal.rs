@@ -349,7 +349,6 @@ mod tests {
     use crate::utils::wait_for;
 
     use super::*;
-    use anyhow::Result;
 
     #[ctor::ctor(unsafe)]
     fn prepare() {
