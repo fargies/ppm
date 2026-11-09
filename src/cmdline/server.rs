@@ -124,7 +124,9 @@ impl Server {
                                 tracing::debug!(?remote_addr, "http request detected");
                                 drop(token);
                                 if let Some(service) = monitor.get(service) {
-                                    if let Err(err) = monitor.forward(&service, stream, &remote_addr) {
+                                    if let Err(err) =
+                                        monitor.forward(&service, stream, &remote_addr)
+                                    {
                                         tracing::error!(?err, "failed to forward http request");
                                     }
                                 } else {
@@ -380,21 +382,12 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Read, Write},
-        ops::Deref,
-        os::{fd::AsRawFd, unix::net::UnixDatagram},
-    };
+    use std::io::{Read, Write};
 
     use crate::{
-        api::get_forward_socket_path,
         cmdline::Client,
         service::{Command, Service},
-        utils::{
-            OnDrop, kill_on_drop,
-            libc::unix_datagram::{ControlMessage, ControlRequest, SocketControlTrait},
-            wait_for,
-        },
+        utils::{OnDrop, kill_on_drop, wait_for},
     };
 
     use super::*;
@@ -432,7 +425,10 @@ mod tests {
     fn http_forward() -> Result<()> {
         let mut monitor = Monitor::new();
         let id = monitor
-            .insert(Service::new("test", Command::new("sleep", ["30"])))
+            .insert(Service::new(
+                "test",
+                Command::new("cargo", ["run", "--example", "http_plugin"]),
+            ))
             .id;
         Arc::get_mut(&mut monitor).unwrap().http_service = Some(id);
         let server = Arc::new(Server::new(Arc::clone(&monitor), "127.0.0.1:0")?);
@@ -451,39 +447,18 @@ mod tests {
         let _monitor_drop_guard = kill_on_drop(monitor_join_handle);
         let _drop_guard = OnDrop::new(|| {
             server.stop().unwrap();
-            tracing::warn!("stopping");
             server_join_handle.join().unwrap().unwrap();
-            tracing::warn!("stopped");
         });
 
         let mut client = Client::connect(addr)?;
 
         client.write_all(b"GET / HTTP/1.1\r\n\r\n")?;
-        /* start a server after request is sent
-         * (on purpose to delay unix socket creation) */
-        let sock_path = get_forward_socket_path();
-        std::thread::sleep(Duration::from_millis(200));
-        let _ = std::fs::remove_file(&sock_path);
-        let receiver = UnixDatagram::bind(get_forward_socket_path())?;
-
-        let mut ctrl = ControlRequest::new();
-        assert_eq!(receiver.recvmsg(&mut [0; 10], &mut ctrl)?, 0);
-        assert_eq!(ctrl.iter().count(), 1);
-        for msg in ctrl.iter() {
-            if let ControlMessage::Rights(fds) = msg {
-                assert_eq!(fds.len(), 1);
-                let mut stream = unsafe { TcpStream::from_raw_fd(fds.first().copied().unwrap()) };
-                stream.write_all(b"reply")?;
-                stream.shutdown(Shutdown::Both)?;
-            }
-        }
 
         let mut buf = Vec::<u8>::with_capacity(10);
         client
             .read_to_end(&mut buf)
             .context("failed to read from client")?;
         assert_eq!(buf.as_slice(), b"reply");
-        receiver.shutdown(Shutdown::Both);
         Ok(())
     }
 }
