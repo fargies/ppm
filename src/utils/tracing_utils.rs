@@ -24,9 +24,8 @@
 
 use anyhow::Result;
 use std::{
-    env::var,
+    env,
     io::IsTerminal,
-    str::FromStr,
     sync::{Arc, LazyLock, Mutex},
     time::Instant,
 };
@@ -38,13 +37,14 @@ use tracing_subscriber::{
 };
 
 use crate::utils::slices::SliceIncludes;
+const DEFAULT_DIRECTIVE: &str = "error";
 
 pub fn is_log_color<T>(output: &T) -> bool
 where
     T: IsTerminal,
 {
-    match var("RUST_LOG_STYLE")
-        .or_else(|_| var("LOG_COLOR"))
+    match env::var("RUST_LOG_STYLE")
+        .or_else(|_| env::var("LOG_COLOR"))
         .unwrap_or_else(|_| String::from("auto"))
         .to_lowercase()
         .as_str()
@@ -59,7 +59,7 @@ fn get_var<S>(name: S) -> Option<bool>
 where
     S: AsRef<str>,
 {
-    if let Ok(value) = var(name.as_ref()) {
+    if let Ok(value) = env::var(name.as_ref()) {
         match value.to_lowercase().as_str() {
             "never" | "no" | "0" | "false" | "" => Some(false),
             /* "always" | "yes" | "1" | "true" */ _ => Some(true),
@@ -93,8 +93,7 @@ where
     F: Fn() -> W + 'static + Send + Sync,
     W: std::io::Write + std::io::IsTerminal,
 {
-    use tracing::Level;
-    use tracing_subscriber::{EnvFilter, Registry, filter::Directive, layer::SubscriberExt};
+    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 
     let fmt = make_fmt()
         .with_ansi(is_log_color(&output()))
@@ -103,16 +102,13 @@ where
     #[cfg(test)]
     let fmt = fmt.with_test_writer();
 
+    let directive = match env::var(EnvFilter::DEFAULT_ENV).or_else(|_| env::var("LOG_DIRECTIVE")) {
+        Ok(value) => format!("{},{value}", directive.unwrap_or(DEFAULT_DIRECTIVE)),
+        Err(_) => directive.unwrap_or(DEFAULT_DIRECTIVE).to_string(),
+    };
+
     Registry::default()
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(
-                    directive
-                        .and_then(|v| Directive::from_str(v).ok())
-                        .unwrap_or(Level::ERROR.into()),
-                )
-                .from_env_lossy(),
-        )
+        .with(EnvFilter::builder().parse_lossy(directive))
         .with(fmt)
 }
 
