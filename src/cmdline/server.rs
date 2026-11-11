@@ -50,11 +50,6 @@ use crate::api::{Action, ActionResult, Reply, Request, RequestId};
 
 const MAX_CONNECTIONS: usize = 16;
 static PPM_CLI_EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| find_ppm_tool("ppm"));
-static HTTP_METHODS_3: LazyLock<HashSet<&[u8; 3]>> = LazyLock::new(|| {
-    HashSet::from([
-        b"GET", b"QUE", b"HEA", b"OPT", b"TRA", b"PUT", b"DEL", b"POS", b"PAT", b"CON",
-    ])
-});
 
 #[derive(Debug)]
 pub struct Server {
@@ -118,32 +113,16 @@ impl Server {
                         let monitor = Arc::clone(&self.monitor);
                         std::thread::spawn(move || {
                             let _span = tracing::info_span!(parent: None, "server:run").entered();
-                            if let Some(service) = monitor.http_service.as_ref()
-                                && Server::peek_http_proto(&stream)
-                            {
-                                tracing::debug!(?remote_addr, "http request detected");
-                                drop(token);
-                                if let Some(service) = monitor.get(service) {
-                                    if let Err(err) =
-                                        monitor.forward(&service, stream, &remote_addr)
-                                    {
-                                        tracing::error!(?err, "failed to forward http request");
-                                    }
-                                } else {
-                                    tracing::error!(service, "no such http service");
-                                    stream.shutdown(Shutdown::Both).unwrap_or(());
-                                }
-                            } else {
-                                if let Err(error) = Server::handle(&stream, monitor) {
-                                    let _ = serde_json::to_writer(
-                                        &stream,
-                                        &ActionResult::<()>::from(error),
-                                    );
-                                }
-                                tracing::trace!("connection closed");
-                                stream.shutdown(Shutdown::Both).unwrap_or(());
-                                drop(token);
+
+                            if let Err(error) = Server::handle(&stream, monitor) {
+                                let _ = serde_json::to_writer(
+                                    &stream,
+                                    &ActionResult::<()>::from(error),
+                                );
                             }
+                            tracing::trace!("connection closed");
+                            stream.shutdown(Shutdown::Both).unwrap_or(());
+                            drop(token);
                         });
                     }
                 }
@@ -183,15 +162,6 @@ impl Server {
         match service.parse::<ServiceId>() {
             Ok(id) => id == LOGGER_DAEMON_ID,
             Err(_) => service == LOGGER_DAEMON_NAME,
-        }
-    }
-
-    fn peek_http_proto(stream: &TcpStream) -> bool {
-        let mut buf = [0u8; 3];
-        if let Ok(3) = stream.peek(&mut buf) {
-            HTTP_METHODS_3.contains(&buf)
-        } else {
-            false
         }
     }
 
@@ -382,12 +352,10 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
-
     use crate::{
         cmdline::Client,
         service::{Command, Service},
-        utils::{OnDrop, kill_on_drop, wait_for},
+        utils::{OnDrop, wait_for},
     };
 
     use super::*;
@@ -417,48 +385,6 @@ mod tests {
             .run(&Action::Info { service: None })
             .expect("command failed");
 
-        Ok(())
-    }
-
-    #[test]
-    #[serial(waitpid)]
-    fn http_forward() -> Result<()> {
-        let mut monitor = Monitor::new();
-        let id = monitor
-            .insert(Service::new(
-                "test",
-                Command::new("cargo", ["run", "--example", "http_plugin"]),
-            ))
-            .id;
-        Arc::get_mut(&mut monitor).unwrap().http_service = Some(id);
-        let server = Arc::new(Server::new(Arc::clone(&monitor), "127.0.0.1:0")?);
-        let addr = server.socket.local_addr()?;
-
-        let server_join_handle = {
-            let server = Arc::clone(&server);
-            std::thread::spawn(move || server.run())
-        };
-        wait_for!(server.running.load(Ordering::Relaxed))?;
-
-        let monitor_join_handle = {
-            let monitor = Arc::clone(&monitor);
-            std::thread::spawn(move || monitor.run())
-        };
-        let _monitor_drop_guard = kill_on_drop(monitor_join_handle);
-        let _drop_guard = OnDrop::new(|| {
-            server.stop().unwrap();
-            server_join_handle.join().unwrap().unwrap();
-        });
-
-        let mut client = Client::connect(addr)?;
-
-        client.write_all(b"GET / HTTP/1.1\r\n\r\n")?;
-
-        let mut buf = Vec::<u8>::with_capacity(10);
-        client
-            .read_to_end(&mut buf)
-            .context("failed to read from client")?;
-        assert_eq!(buf.as_slice(), b"reply");
         Ok(())
     }
 }

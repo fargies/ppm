@@ -32,8 +32,6 @@ pub use fcntl::{Fcntl, FdFlags};
 mod dup;
 pub use dup::Dup;
 
-pub mod unix_datagram;
-
 /// Set session-id
 ///
 /// Returns the new session-id
