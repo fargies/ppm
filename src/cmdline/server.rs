@@ -325,7 +325,7 @@ impl Server {
                     service.command.env = Some(env.into_iter().collect());
                 }
                 if let Some(schedule) = schedule {
-                    service.schedule = Some(schedule.parse()?);
+                    service.schedule = Some(Box::new(schedule.parse()?));
                 }
                 service.workdir = workdir;
 

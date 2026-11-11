@@ -90,10 +90,10 @@ pub struct Service {
     pub workdir: Option<String>,
     /// Command schedule for periodic commands
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub schedule: Option<Cron>,
+    pub schedule: Option<Box<Cron>>,
     /// Directory watchs to monitor
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub watch: Option<Watch>,
+    pub watch: Option<Box<Watch>>,
     /// Running process informations
     #[serde(skip, default)]
     _info: Mutex<Arc<Info>>,
