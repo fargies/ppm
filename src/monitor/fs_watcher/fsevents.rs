@@ -142,7 +142,7 @@ impl WatchInfoData {
             tracing::info!(id=service.id, name=service.name, file=?path,
                 event=?flags,
                 "file event detected");
-            monitor.on_watch_event(&service);
+            monitor.on_fswatch_event(&service);
         } else {
             tracing::trace!(id=service.id, name=service.name, file=?path, event=?flags,
                 "file event rejected")
