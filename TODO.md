@@ -1,22 +1,9 @@
 # TODO List
 
-- [] split client/server to separate dependencies
-- [x] add support for "workdir"
-- [x] add support for "watchs"
-- [x] add throttle for "watchs"
-- [x] add support for logs and log rotation
-- [x] fix watchs to filter filenames on MacOS, add a test to ensure this
-- [x] add schedule and workdir options on cli
-- [x] allow to monitor single files
-- [x] documentation and schema for logger
 - [] when rotating files do look for `\n` boundaries
 - [] doc show minimalistic service config (id not mandatory)
-- [] installation -> publish on docker hub
-- [x] external API (grpc ?) --> json-rpc
-- [] binaries shipped with releases on GitHub
 - [] add mode to spawn service as container (having ppm in entry-point) CMD
 - [x] add daemon log-file (with rotate and config)
 - [] add hot-reload feature
-- [] fix log file naming, do not override existing files
-- [] log_tracker does not detect if stdout is closed and no logs are being written
-- [] log_tracker process is not killed with parent -> setsid issue ?
+- [] rename `Watcher` as `FsWatcher` and `FsWatch` as `FsWatch`
+- [] move OwnedFd in an Arc to release only from run loop

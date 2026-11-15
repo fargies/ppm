@@ -276,7 +276,8 @@ impl<'a> SchedulerEventRecord<'a> {
         match event {
             SchedulerEvent::ServiceSchedule { .. } => "schedule",
             SchedulerEvent::ServiceRestart { .. } => "restart",
-            SchedulerEvent::WatchServiceRestart { .. } => "watch",
+            SchedulerEvent::FsWatchServiceRestart { .. } => "fs_watch",
+            SchedulerEvent::PortWatchServiceStart { .. } => "port_watch",
             SchedulerEvent::Sysinfo { .. } => "stats",
             SchedulerEvent::ClockCheck { .. } => "clock check",
         }

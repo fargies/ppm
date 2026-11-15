@@ -39,7 +39,7 @@ const DEFAULT_MAX_DEPTH: usize = 4;
 
 /// Directory watching object
 #[derive(PartialEq, Clone)]
-pub struct Watch {
+pub struct FsWatch {
     /// excluded paths globbing patterns
     pub exclude: Option<GlobSet>,
     /// force-included paths globbing patterns
@@ -50,7 +50,7 @@ pub struct Watch {
     pub max_depth: usize,
 }
 
-impl Default for Watch {
+impl Default for FsWatch {
     fn default() -> Self {
         Self {
             exclude: Default::default(),
@@ -61,7 +61,7 @@ impl Default for Watch {
     }
 }
 
-impl Watch {
+impl FsWatch {
     #[inline]
     pub fn add<P>(&mut self, path: P)
     where
@@ -81,7 +81,7 @@ impl Watch {
     }
 }
 
-impl fmt::Debug for Watch {
+impl fmt::Debug for FsWatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut f = f.debug_struct("Watch");
         if let Some(include) = self.include.as_ref() {
@@ -100,7 +100,7 @@ impl fmt::Debug for Watch {
 struct WatchVisitor();
 
 impl<'de> Visitor<'de> for WatchVisitor {
-    type Value = Watch;
+    type Value = FsWatch;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter
@@ -111,7 +111,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
     where
         E: Error,
     {
-        let mut watch = Watch::default();
+        let mut watch = FsWatch::default();
         watch.add(v);
         Ok(watch)
     }
@@ -120,7 +120,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
     where
         A: serde::de::SeqAccess<'de>,
     {
-        let mut watch = Watch::default();
+        let mut watch = FsWatch::default();
         while let Some(value) = seq.next_element::<PathBuf>()? {
             watch.add(value);
         }
@@ -131,7 +131,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
-        let mut watch = Watch::default();
+        let mut watch = FsWatch::default();
         while let Some(k) = map.next_key::<String>()? {
             if k == "exclude" {
                 watch.exclude = Some(map.next_value()?);
@@ -149,7 +149,7 @@ impl<'de> Visitor<'de> for WatchVisitor {
     }
 }
 
-impl<'de> Deserialize<'de> for Watch {
+impl<'de> Deserialize<'de> for FsWatch {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -168,7 +168,7 @@ impl<T> OptionLen for Option<T> {
     }
 }
 
-impl Serialize for Watch {
+impl Serialize for FsWatch {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -205,27 +205,27 @@ mod tests {
 
     #[test]
     fn serde() -> Result<()> {
-        let watch = yaml::from_str::<Watch>("/tmp")?;
+        let watch = yaml::from_str::<FsWatch>("/tmp")?;
         assert_eq!(None, watch.include);
         assert_eq!(None, watch.exclude);
         assert_eq!(vec![PathBuf::from("/tmp")], watch.paths);
 
-        assert_eq!(watch, yaml::from_str::<Watch>("{ paths: /tmp }")?);
+        assert_eq!(watch, yaml::from_str::<FsWatch>("{ paths: /tmp }")?);
 
         let watch =
-            yaml::from_str::<Watch>("{ include: \"*.c\", exclude: \"*.h\", paths: [ /tmp ] }")?;
+            yaml::from_str::<FsWatch>("{ include: \"*.c\", exclude: \"*.h\", paths: [ /tmp ] }")?;
         assert_eq!(Some(GlobSet::try_from(["*.c"])?), watch.include);
         assert_eq!(Some(GlobSet::try_from(["*.h"])?), watch.exclude);
         assert_eq!(vec![PathBuf::from("/tmp")], watch.paths);
 
         assert_eq!(
             watch,
-            yaml::from_str::<Watch>(
+            yaml::from_str::<FsWatch>(
                 "{ include: [ \"*.c\" ], exclude: [ \"*.h\" ], paths: [ /tmp ] }"
             )?
         );
 
-        let watch = yaml::from_str::<Watch>("{}")?;
+        let watch = yaml::from_str::<FsWatch>("{}")?;
         assert_eq!(None, watch.include);
         assert_eq!(None, watch.exclude);
         assert!(watch.paths.is_empty());
@@ -234,13 +234,13 @@ mod tests {
 
     #[test]
     fn serialize() -> Result<()> {
-        assert_eq!(yaml::to_string(&Watch::default())?.trim(), "{}");
+        assert_eq!(yaml::to_string(&FsWatch::default())?.trim(), "{}");
 
-        let mut w = Watch::default();
+        let mut w = FsWatch::default();
         w.add("test");
         w.add("test");
         assert_eq!(yaml::to_string(&w)?.trim(), "- test\n- test");
-        assert_eq!(yaml::from_str::<Watch>(&yaml::to_string(&w)?)?, w);
+        assert_eq!(yaml::from_str::<FsWatch>(&yaml::to_string(&w)?)?, w);
 
         w.max_depth = 12;
         assert_eq!(
@@ -259,7 +259,7 @@ mod tests {
             yaml::to_string(&w)?.trim(),
             "include:\n- test\n- toto**\nexclude: tata\nmax_depth: 12\npaths:\n- test\n- test"
         );
-        assert_eq!(yaml::from_str::<Watch>(&yaml::to_string(&w)?)?, w);
+        assert_eq!(yaml::from_str::<FsWatch>(&yaml::to_string(&w)?)?, w);
         eprintln!("watch: {w:?}");
         Ok(())
     }
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn invalid() -> Result<()> {
         for test in ["paths: null", "paths: 32", "include: 32"] {
-            if yaml::from_str::<Watch>(test).is_ok() {
+            if yaml::from_str::<FsWatch>(test).is_ok() {
                 Err(anyhow!("should have failed to parse `{test}`"))?;
             }
         }
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn exclusion() -> Result<()> {
-        let mut watch = Watch::default();
+        let mut watch = FsWatch::default();
         assert!(
             watch.is_excluded(Path::new(".hidden")),
             "files starting with `.` should be excluded"

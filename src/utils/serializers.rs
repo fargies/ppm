@@ -28,3 +28,5 @@ pub mod service_dashmap;
 pub mod tabled;
 
 pub mod human;
+
+pub mod socket;

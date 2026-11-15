@@ -24,7 +24,6 @@
 use anyhow::{Context, Result, anyhow};
 use serde_yaml_ng as yaml;
 use std::{
-    collections::HashSet,
     io::BufReader,
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
     os::fd::{FromRawFd, IntoRawFd},

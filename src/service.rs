@@ -25,7 +25,6 @@ use anyhow::{Result, anyhow};
 use croner::Cron;
 use libc::{WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WTERMSIG, c_int, pid_t};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::{
     ops::Deref,
     path::PathBuf,
@@ -34,13 +33,16 @@ use std::{
         Arc, LazyLock, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
-use crate::monitor::logger::Logger;
-use crate::utils::{
-    find_ppm_tool,
-    libc::waitpid,
-    signal::{self, SIGINT, SIGTERM, Signal},
+use crate::{
+    monitor::{fs_watcher::FsWatch, logger::Logger, port_listener::PortWatch},
+    utils::{
+        find_ppm_tool,
+        libc::waitpid,
+        signal::{self, SIGINT, SIGTERM, Signal},
+    },
 };
 
 mod command;
@@ -56,9 +58,6 @@ mod status;
 pub use status::Status;
 
 mod tabled;
-
-mod watch;
-pub use watch::Watch;
 
 static S_ID: AtomicUsize = AtomicUsize::new(0);
 pub const SERVICE_ID_INVALID: usize = usize::MAX;
@@ -93,7 +92,10 @@ pub struct Service {
     pub schedule: Option<Box<Cron>>,
     /// Directory watchs to monitor
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub watch: Option<Box<Watch>>,
+    pub watch: Option<Box<FsWatch>>,
+    /// Inetd like port to watch
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub listen: Option<Box<PortWatch>>,
     /// Running process informations
     #[serde(skip, default)]
     _info: Mutex<Arc<Info>>,
@@ -133,6 +135,7 @@ impl Service {
             workdir: None,
             schedule: Default::default(),
             watch: None,
+            listen: None,
             _info: Default::default(),
             _stats: Default::default(),
         }
@@ -256,7 +259,7 @@ impl Service {
     ///
     /// This will not update the service `info`, the `Monitor` thread should
     /// do using `waitpid`
-    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret)]
+    #[tracing::instrument(level = "DEBUG", skip(self), ret)]
     fn terminate(&self, pid: pid_t, signal: Signal, timeout: &Duration) -> bool {
         if Signal::kill(pid, signal).is_err() {
             // already dead
@@ -277,26 +280,14 @@ impl Service {
         true
     }
 
-    #[tracing::instrument(level = "INFO", fields(name=self.name, id=self.id), skip(self), ret(level = "TRACE"))]
+    #[tracing::instrument(level = "INFO", skip(self), ret(level = "TRACE"))]
     pub fn set_terminated(&self, pid: pid_t, status: c_int) -> Status {
         let mut guard = self._info.lock().unwrap();
         if guard.pid.is_none_or(|p| p != pid) {
-            tracing::trace!(
-                id = self.id,
-                name = self.name,
-                terminated_pid = pid,
-                pid = guard.pid,
-                "invalid pid for service"
-            );
+            tracing::trace!(actual_pid = guard.pid, "invalid pid for service");
         } else if WIFSIGNALED(status) {
             let signal = Signal(WTERMSIG(status));
-            tracing::info!(
-                id = self.id,
-                name = self.name,
-                pid,
-                ?signal,
-                "service terminated by signal"
-            );
+            tracing::info!(?signal, "service terminated by signal");
 
             if signal == SIGTERM || signal == SIGINT {
                 Arc::make_mut(&mut guard).set_finished();
@@ -305,7 +296,7 @@ impl Service {
             }
         } else if WIFEXITED(status) {
             let code = WEXITSTATUS(status);
-            tracing::info!(id = self.id, name = self.name, pid, code, "service exited");
+            tracing::info!(code, "service exited");
 
             if code == 0 {
                 Arc::make_mut(&mut guard).set_finished();
@@ -397,6 +388,7 @@ impl Default for Service {
             workdir: None,
             schedule: Default::default(),
             watch: None,
+            listen: None,
             _info: Default::default(),
             _stats: Default::default(),
         }
