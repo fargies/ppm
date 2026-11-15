@@ -69,9 +69,9 @@ pub mod size {
 }
 
 pub mod duration {
-    pub use humantime_serde::{deserialize, serialize};
-    pub use humantime::parse_duration as parse;
     pub use humantime::format_duration as format;
+    pub use humantime::parse_duration as parse;
+    pub use humantime_serde::{deserialize, serialize};
 }
 
 #[cfg(test)]

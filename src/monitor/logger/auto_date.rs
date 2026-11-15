@@ -41,8 +41,7 @@ impl Default for AutoDate {
 }
 
 impl AutoDate {
-    pub fn take(&mut self, line: &[u8]) -> Option<Arc<String>>
-    {
+    pub fn take(&mut self, line: &[u8]) -> Option<Arc<String>> {
         if self.next.take().is_some() {
             match self.enabled {
                 Some(true) => Some(TracingDateTime::get()),
@@ -63,7 +62,7 @@ impl AutoDate {
             Some(pos) => {
                 self.next = Some(());
                 &buffer[..pos + 1]
-            },
+            }
             None => buffer,
         }
     }

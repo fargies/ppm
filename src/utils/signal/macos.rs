@@ -23,12 +23,12 @@
 
 #![allow(dead_code)]
 
-use std::io::Result as IoResult;
 use dispatch2::{
     _dispatch_source_type_timer, DispatchObject, DispatchQueue, DispatchRetained, DispatchSource,
     DispatchTime, GlobalQueueIdentifier,
 };
 use libc::pthread_t;
+use std::io::Result as IoResult;
 use std::os::raw::c_void;
 use std::time::Duration;
 

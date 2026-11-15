@@ -21,13 +21,13 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+use std::io::Result as IoResult;
 use std::{
     fmt::{Debug, Write},
     ops::Deref,
     ptr::{null, null_mut},
     sync::LazyLock,
 };
-use std::io::Result as IoResult;
 
 #[cfg(target_os = "linux")]
 mod posix;

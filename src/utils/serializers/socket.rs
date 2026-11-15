@@ -76,10 +76,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{net::SocketAddr, str::FromStr};
     use anyhow::Result;
     use serde::{Deserialize, Serialize};
     use serde_yaml_ng as yaml;
+    use std::{net::SocketAddr, str::FromStr};
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     pub struct SocketParseTest(#[serde(deserialize_with = "super::parse")] pub SocketAddr);
