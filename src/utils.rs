@@ -22,7 +22,10 @@
 */
 
 use std::{
-    env::{current_dir, current_exe}, io::IsTerminal, path::PathBuf, sync::{Arc, atomic::AtomicBool},
+    env::{current_dir, current_exe},
+    io::IsTerminal,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
 };
 
 pub mod serde_utils;
@@ -52,6 +55,9 @@ pub mod tracing_utils;
 pub mod slices;
 
 pub mod pre_json;
+
+pub mod option_box;
+pub use option_box::OptionBoxTrait;
 
 #[cfg(test)]
 pub mod test_utils;

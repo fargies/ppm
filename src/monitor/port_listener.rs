@@ -144,7 +144,7 @@ impl PortListenerThreadContext {
 }
 
 impl PortListener {
-    pub fn new(monitor: Weak<Monitor>) -> Self {
+    pub fn new(monitor: Weak<Monitor>) -> Box<Self> {
         let (poller, poller_writer) = Poller::with_pipe();
         let mut ret = Self {
             poller: poller_writer,
@@ -165,7 +165,7 @@ impl PortListener {
             })
         };
         ret.join_handle = Some(join_handle);
-        ret
+        Box::new(ret)
     }
 
     pub fn add(&mut self, service_id: &ServiceId, watch: &PortWatch) -> Result<()> {

@@ -37,7 +37,7 @@ use crate::{
     },
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
-        self,
+        self, OptionBoxTrait,
         libc::{getpgid, getpid, gettid, setsid, waitpid},
         serializers::{human, instant::RefTimePoint},
         signal::{SIGALRM, SIGCHLD, SIGHUP, SIGINT, SIGTERM, Signal, SignalSet, Timer},
@@ -74,13 +74,13 @@ pub struct Monitor {
     #[serde(with = "utils::serializers::service_dashmap")]
     pub services: DashMap<ServiceId, Arc<Service>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logger: Option<Logger>,
+    pub logger: Option<Box<Logger>>,
     #[serde(skip)]
     pub scheduler: Scheduler,
     #[serde(skip)]
-    watcher: Mutex<Option<Watcher>>,
+    watcher: Mutex<Option<Box<Watcher>>>,
     #[serde(skip)]
-    listener: Mutex<Option<PortListener>>,
+    listener: Mutex<Option<Box<PortListener>>>,
     #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
@@ -151,7 +151,8 @@ impl Monitor {
         while let Some((pid, status)) = waitpid(pid, false) {
             count += 1;
             if let Some(service) = self.find_by_pid(pid) {
-                let _span = tracing::info_span!("waitpid", name = service.name, id = service.id).entered();
+                let _span =
+                    tracing::info_span!("waitpid", name = service.name, id = service.id).entered();
 
                 let is_crashed = matches!(service.set_terminated(pid, status), Status::Crashed);
                 let throttle = service.update_throttle(self.uptime_slices(&service), is_crashed);
@@ -205,7 +206,7 @@ impl Monitor {
                                 }
                             }
                             self.remove_fswatch(&service.id);
-                            service.restart(self.logger.as_ref(), self.make_stdin(&service));
+                            service.restart(self.logger.as_opt(), self.make_stdin(&service));
                             self.add_watch(&service)
                                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
                             /* will reschedule only if needed */
@@ -445,10 +446,7 @@ impl Monitor {
     pub fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
         if let Some(watch) = service.watch.as_ref() {
             let mut guard = self.watcher.lock().unwrap();
-            let watcher = match guard.as_mut() {
-                Some(w) => w,
-                None => guard.insert(Watcher::new(Arc::downgrade(self))?),
-            };
+            let watcher = guard.get_or_insert_with(|| Watcher::new(Arc::downgrade(self)));
             tracing::debug!("adding fs-watch");
             watcher.add(&service.id, watch)?;
         }

@@ -375,7 +375,7 @@ mod tests {
 
         let mut srv = Service::new("test", Command::new("echo", ["world"]));
         /* silence ppm-launcher logs to see only sub-command bytes */
-        srv.command.env = Some(HashMap::from([("RUST_LOG".into(), "off".into())]));
+        srv.command.env = Some(Box::new(HashMap::from([("RUST_LOG".into(), "off".into())])));
 
         srv.restart(&logger, None);
         wait_for!(
