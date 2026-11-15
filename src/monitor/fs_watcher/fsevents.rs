@@ -64,11 +64,11 @@ impl Debug for FSEventWatcher {
 }
 
 impl FsWatcherTrait for FSEventWatcher {
-    fn new(monitor: Weak<Monitor>) -> Result<Self> {
+    fn new(monitor: Weak<Monitor>) -> Box<Self> {
         // using a dedicated queue will spawn a thread
         // using [DispatchQueue::main] will wait until someone calls [dispatch2::dispatch_main]
         // [FSEventStreamUnscheduleFromRunLoop] is deprecated and would work if we call [CRunLoop::run]
-        Ok(Self {
+        Box::new(Self {
             monitor,
             queue: DispatchQueue::global_queue(GlobalQueueIdentifier::QualityOfService(
                 dispatch2::DispatchQoS::Default,

@@ -23,10 +23,7 @@
 use anyhow::Result;
 use std::sync::Weak;
 
-use crate::{
-    monitor::Monitor,
-    service::{ServiceId},
-};
+use crate::{monitor::Monitor, service::ServiceId};
 
 mod watch;
 pub use watch::FsWatch;
@@ -42,7 +39,7 @@ mod private;
 pub use private::Watcher;
 
 pub trait FsWatcherTrait: Sized + Sync + Send {
-    fn new(monitor: Weak<Monitor>) -> Result<Self>;
+    fn new(monitor: Weak<Monitor>) -> Box<Self>;
 
     fn add(&mut self, service_id: &ServiceId, watch: &FsWatch) -> Result<()>;
 
@@ -62,7 +59,8 @@ mod tests {
     };
 
     use crate::{
-        service::{Command, Service}, utils::{GlobSet, MkTemp, kill_on_drop, wait_for},
+        service::{Command, Service},
+        utils::{GlobSet, MkTemp, kill_on_drop, wait_for},
     };
     use serde_yaml_ng as yaml;
     use serial_test::serial;
@@ -251,7 +249,7 @@ mod tests {
 
     #[test]
     fn watcher_trait() -> Result<()> {
-        let mut watcher = Watcher::new(Default::default())?;
+        let mut watcher = Watcher::new(Default::default());
 
         watcher.add(
             &0,

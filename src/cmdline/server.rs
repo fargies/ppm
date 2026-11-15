@@ -291,7 +291,7 @@ impl Server {
 
                 let mut service = Service::new(name, Command::new(path, args));
                 if !env.is_empty() {
-                    service.command.env = Some(env.into_iter().collect());
+                    service.command.env = Some(Box::new(env.into_iter().collect()));
                 }
                 if let Some(schedule) = schedule {
                     service.schedule = Some(Box::new(schedule.parse()?));

@@ -39,7 +39,7 @@ use std::{
 use crate::{
     monitor::{fs_watcher::FsWatch, logger::Logger, port_listener::PortWatch},
     utils::{
-        find_ppm_tool,
+        OptionBoxTrait, find_ppm_tool,
         libc::waitpid,
         signal::{self, SIGINT, SIGTERM, Signal},
     },
@@ -207,7 +207,7 @@ impl Service {
         if let Some(workdir) = self.workdir.as_ref() {
             cmd.current_dir(workdir);
         }
-        if let Some(env) = self.command.env.as_ref() {
+        if let Some(env) = self.command.env.as_opt() {
             cmd.envs(env);
         }
 

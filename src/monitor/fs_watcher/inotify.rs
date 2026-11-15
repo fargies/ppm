@@ -71,7 +71,7 @@ impl FsWatcherTrait for InotifyWatcher {
     /// Create a new [Watcher] object
     ///
     /// This does not register services
-    fn new(monitor: Weak<Monitor>) -> Result<Self> {
+    fn new(monitor: Weak<Monitor>) -> Box<Self> {
         {
             let (poller, poller_writer) = Poller::with_pipe();
             let mut ret = Self {
@@ -89,7 +89,7 @@ impl FsWatcherTrait for InotifyWatcher {
                 })
             };
             ret.join_handle = Some(join_handle);
-            Ok(ret)
+            Box::new(ret)
         }
     }
 
