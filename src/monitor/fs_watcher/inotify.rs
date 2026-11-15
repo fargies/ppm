@@ -30,9 +30,9 @@ use std::{
     thread::JoinHandle,
 };
 
-use super::{Monitor, WatcherTrait};
+use super::{Monitor, FsWatch, FsWatcherTrait};
 use crate::{
-    service::{ServiceId, Watch},
+    service::ServiceId,
     utils::{
         debug::DebugIter,
         poller::{Poller, PollerFds, PollerFlags, PollerWord, PollerWriter},
@@ -67,7 +67,7 @@ impl InotifyWatcher {
     }
 }
 
-impl WatcherTrait for InotifyWatcher {
+impl FsWatcherTrait for InotifyWatcher {
     /// Create a new [Watcher] object
     ///
     /// This does not register services
@@ -93,7 +93,7 @@ impl WatcherTrait for InotifyWatcher {
         }
     }
 
-    fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
+    fn add(&mut self, service_id: &ServiceId, watch: &FsWatch) -> Result<()> {
         let winfo = WatchInfo::new(service_id, watch)?;
 
         // remove duplicates
@@ -161,7 +161,7 @@ impl WatcherThreadContext {
         let mut update_pfds = true;
 
         loop {
-            let _span = tracing::info_span!(parent: None, "watcher").entered();
+            let _span = tracing::info_span!(parent: None, "fs_watcher").entered();
 
             if update_pfds {
                 self.prepare(&mut pfds);
@@ -182,6 +182,9 @@ impl WatcherThreadContext {
                         }
                         None => update_pfds = true,
                     };
+                } else {
+                    tracing::error!(fd, ?flags, "watcher polling error");
+                    update_pfds = true;
                 }
             }
 
@@ -205,7 +208,7 @@ impl WatcherThreadContext {
 
 impl Debug for InotifyWatcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Watcher")
+        f.debug_struct("FsWatcher")
             .field(
                 "services",
                 &DebugIter::new(self.watchs.iter().map(|x| *x.key())),
@@ -226,7 +229,7 @@ pub struct WatchInfo {
 }
 
 impl WatchInfo {
-    pub fn new(service_id: &ServiceId, watch: &Watch) -> Result<Self> {
+    pub fn new(service_id: &ServiceId, watch: &FsWatch) -> Result<Self> {
         let inotify = Inotify::init()?;
         tracing::trace!(fd = inotify.as_raw_fd(), "new inotify watch");
 
@@ -240,7 +243,7 @@ impl WatchInfo {
         })
     }
 
-    fn register(watches: &mut Watches, path: &Path, watch: &Watch, level: usize) {
+    fn register(watches: &mut Watches, path: &Path, watch: &FsWatch, level: usize) {
         if level >= watch.max_depth {
             tracing::error!(?path, level, "max watcher recursion level reached");
             return;
@@ -303,7 +306,7 @@ impl WatchInfo {
                         tracing::info!(id = service.id, name = service.name, file = ?name,
                             event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
                             "dir event detected");
-                        monitor.on_watch_event(&service);
+                        monitor.on_fswatch_event(&service);
                     } else {
                         tracing::trace!(id = service.id, name = service.name, file = ?name,
                             event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
@@ -314,7 +317,7 @@ impl WatchInfo {
                     tracing::info!(id = service.id, name = service.name,
                         event = ?DebugIter::new(event.mask.iter_names().map(|x| x.0)),
                         "file event detected");
-                    monitor.on_watch_event(&service);
+                    monitor.on_fswatch_event(&service);
                 }
             }
         }

@@ -25,23 +25,26 @@ use std::sync::Weak;
 
 use crate::{
     monitor::Monitor,
-    service::{ServiceId, Watch},
+    service::{ServiceId},
 };
 
+mod watch;
+pub use watch::FsWatch;
+
 #[cfg(target_os = "linux")]
-#[path = "watcher/inotify.rs"]
+#[path = "fs_watcher/inotify.rs"]
 mod private;
 
 #[cfg(target_os = "macos")]
-#[path = "watcher/fsevents.rs"]
+#[path = "fs_watcher/fsevents.rs"]
 mod private;
 
 pub use private::Watcher;
 
-pub trait WatcherTrait: Sized + Sync + Send {
+pub trait FsWatcherTrait: Sized + Sync + Send {
     fn new(monitor: Weak<Monitor>) -> Result<Self>;
 
-    fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()>;
+    fn add(&mut self, service_id: &ServiceId, watch: &FsWatch) -> Result<()>;
 
     fn remove(&mut self, service_id: &ServiceId);
 
@@ -90,7 +93,7 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         let file = temp.as_ref().join("test_file");
         tracing::trace!(?file, "creating test file");
@@ -133,7 +136,7 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         tracing::trace!(file = ?file, "writing test file");
         File::options()
@@ -146,7 +149,7 @@ mod tests {
             service.info().restarts
         )
         .expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         drop(temp);
         wait_for!(
@@ -155,7 +158,7 @@ mod tests {
             service.info().restarts
         )
         .expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         Ok(())
     }
@@ -205,7 +208,7 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
         wait_for!(service.info().pid.is_some()).expect("not started");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         /* items in `paths` are always watched */
         File::options()
@@ -218,7 +221,7 @@ mod tests {
             service.info().restarts
         )
         .expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         /* ignored files */
         #[cfg(not(target_os = "macos"))]
@@ -227,21 +230,21 @@ mod tests {
         File::create(make_path(&temp, ["valid", "subdir", "toto.not-txt"]))?;
         wait_for!(service.info().restarts != 2, Duration::from_secs(1))
             .expect_err("should not detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         File::create(make_path(&temp, ["valid", "subdir", "toto.txt"]))?;
         wait_for!(service.info().restarts == 3).expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         /* directory is first processed as a file "another" and has to be validated */
         create_dir_all(make_path(&temp, ["valid", "subdir", "another"]))?;
         wait_for!(service.info().restarts == 4).expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         /* watchs should have been re-created on paths, registering "another" */
         File::create(make_path(&temp, ["valid", "subdir", "another", "toto.txt"]))?;
         wait_for!(service.info().restarts == 5).expect("failed to detect file change");
-        wait_for!(mon.has_watch(&service.id)).expect("failed to set watch");
+        wait_for!(mon.has_fswatch(&service.id)).expect("failed to set watch");
 
         Ok(())
     }
@@ -252,7 +255,7 @@ mod tests {
 
         watcher.add(
             &0,
-            &Watch {
+            &FsWatch {
                 include: Some(GlobSet::try_from(["*test"])?),
                 paths: vec!["/tmp".into()],
                 ..Default::default()

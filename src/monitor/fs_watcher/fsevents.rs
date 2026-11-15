@@ -42,17 +42,13 @@ use objc2_core_services::{
     kFSEventStreamEventIdSinceNow,
 };
 
-use crate::{
-    monitor::Monitor,
-    service::{ServiceId, Watch},
-    utils::debug::DebugIter,
-};
+use crate::{monitor::Monitor, service::ServiceId, utils::debug::DebugIter};
 
-use super::WatcherTrait;
+use super::{FsWatch, FsWatcherTrait};
 
 pub type Watcher = FSEventWatcher;
 
-/// A [WatcherTrait] object that relies on MacOS FSEvents
+/// A [FsWatcherTrait] object that relies on MacOS FSEvents
 pub struct FSEventWatcher {
     monitor: Weak<Monitor>,
     queue: DispatchRetained<DispatchQueue>,
@@ -61,13 +57,13 @@ pub struct FSEventWatcher {
 
 impl Debug for FSEventWatcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Watcher")
+        f.debug_struct("FsWatcher")
             .field("services", &DebugIter::new(self.watchs.keys()))
             .finish()
     }
 }
 
-impl WatcherTrait for FSEventWatcher {
+impl FsWatcherTrait for FSEventWatcher {
     fn new(monitor: Weak<Monitor>) -> Result<Self> {
         // using a dedicated queue will spawn a thread
         // using [DispatchQueue::main] will wait until someone calls [dispatch2::dispatch_main]
@@ -81,7 +77,7 @@ impl WatcherTrait for FSEventWatcher {
         })
     }
 
-    fn add(&mut self, service_id: &ServiceId, watch: &Watch) -> Result<()> {
+    fn add(&mut self, service_id: &ServiceId, watch: &FsWatch) -> Result<()> {
         self.watchs.insert(
             *service_id,
             WatchInfo::new(service_id, watch, self.queue.as_ref(), self.monitor.clone()),
@@ -168,7 +164,7 @@ struct WatchInfo {
 impl WatchInfo {
     pub fn new(
         service_id: &ServiceId,
-        watch: &Watch,
+        watch: &FsWatch,
         queue: &DispatchQueue,
         monitor: Weak<Monitor>,
     ) -> Self {

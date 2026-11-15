@@ -57,7 +57,7 @@ pub enum SchedulerEvent {
         #[serde(with = "serializers::instant")]
         instant: Instant,
     },
-    WatchServiceRestart {
+    FsWatchServiceRestart {
         id: ServiceId,
         #[serde(with = "serializers::instant")]
         instant: Instant,
@@ -70,6 +70,11 @@ pub enum SchedulerEvent {
         #[serde(with = "serializers::instant")]
         instant: Instant,
     },
+    PortWatchServiceStart {
+        id: ServiceId,
+        #[serde(with = "serializers::instant")]
+        instant: Instant,
+    },
 }
 
 impl SchedulerEvent {
@@ -77,7 +82,8 @@ impl SchedulerEvent {
         match self {
             Self::ServiceSchedule { id, .. }
             | Self::ServiceRestart { id, .. }
-            | Self::WatchServiceRestart { id, .. } => Some(*id),
+            | Self::FsWatchServiceRestart { id, .. }
+            | Self::PortWatchServiceStart { id, .. } => Some(*id),
             _ => None,
         }
     }
@@ -86,8 +92,10 @@ impl SchedulerEvent {
         match self {
             Self::ServiceSchedule { instant, .. }
             | Self::ServiceRestart { instant, .. }
-            | Self::WatchServiceRestart { instant, .. } => instant,
-            Self::Sysinfo { instant } | Self::ClockCheck { instant } => instant,
+            | Self::FsWatchServiceRestart { instant, .. }
+            | Self::PortWatchServiceStart { instant, .. }
+            | Self::Sysinfo { instant }
+            | Self::ClockCheck { instant } => instant,
         }
     }
 
@@ -95,8 +103,10 @@ impl SchedulerEvent {
         match self {
             SchedulerEvent::ServiceSchedule { instant, .. }
             | SchedulerEvent::ServiceRestart { instant, .. }
-            | SchedulerEvent::WatchServiceRestart { instant, .. } => instant,
-            SchedulerEvent::Sysinfo { instant } | SchedulerEvent::ClockCheck { instant } => instant,
+            | SchedulerEvent::FsWatchServiceRestart { instant, .. }
+            | Self::PortWatchServiceStart { instant, .. }
+            | SchedulerEvent::Sysinfo { instant }
+            | SchedulerEvent::ClockCheck { instant } => instant,
         }
     }
 
@@ -108,8 +118,11 @@ impl SchedulerEvent {
             Self::ServiceRestart { id, .. } => {
                 matches!(other, Self::ServiceRestart { id: other_id, .. } if id == other_id)
             }
-            Self::WatchServiceRestart { id, .. } => {
-                matches!(other, Self::WatchServiceRestart { id: other_id, .. } if id == other_id)
+            Self::FsWatchServiceRestart { id, .. } => {
+                matches!(other, Self::FsWatchServiceRestart { id: other_id, .. } if id == other_id)
+            }
+            Self::PortWatchServiceStart { id, .. } => {
+                matches!(other, Self::PortWatchServiceStart { id: other_id, .. } if id == other_id)
             }
             Self::Sysinfo { .. } => {
                 matches!(other, Self::Sysinfo { .. })

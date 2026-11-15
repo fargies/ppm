@@ -31,7 +31,10 @@ use std::{
 };
 
 use crate::{
-    monitor::{logger::Logger, scheduler::SchedulerEvent, watcher::WatcherTrait},
+    monitor::{
+        fs_watcher::FsWatcherTrait, logger::Logger, port_listener::PortListener,
+        scheduler::SchedulerEvent,
+    },
     service::{Info, Service, ServiceId, Stats, Status},
     utils::{
         self,
@@ -50,10 +53,12 @@ use sysinfo::Sysinfo;
 pub mod scheduler;
 use scheduler::Scheduler;
 
-pub mod watcher;
-use watcher::Watcher;
+pub mod fs_watcher;
+use fs_watcher::Watcher;
 
 pub mod logger;
+
+pub mod port_listener;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,6 +80,8 @@ pub struct Monitor {
     #[serde(skip)]
     watcher: Mutex<Option<Watcher>>,
     #[serde(skip)]
+    listener: Mutex<Option<PortListener>>,
+    #[serde(skip)]
     sysinfo: Mutex<Sysinfo>,
     #[serde(skip)]
     _stats: Mutex<Arc<Stats>>,
@@ -95,6 +102,7 @@ impl Default for Monitor {
             logger: Default::default(),
             scheduler: Default::default(),
             watcher: Default::default(),
+            listener: Default::default(),
             sysinfo: Default::default(),
             _stats: Default::default(),
             start_time: Instant::now(),
@@ -143,6 +151,8 @@ impl Monitor {
         while let Some((pid, status)) = waitpid(pid, false) {
             count += 1;
             if let Some(service) = self.find_by_pid(pid) {
+                let _span = tracing::info_span!("waitpid", name = service.name, id = service.id).entered();
+
                 let is_crashed = matches!(service.set_terminated(pid, status), Status::Crashed);
                 let throttle = service.update_throttle(self.uptime_slices(&service), is_crashed);
                 if is_crashed {
@@ -150,6 +160,9 @@ impl Monitor {
                         id: service.id,
                         instant: self.next_restart(&service.info(), throttle),
                     });
+                } else if service.listen.is_some() {
+                    /* enable port-watch only on proper termination */
+                    self.set_portwatch_enabled(&service.id, true);
                 }
             } else {
                 tracing::warn!(pid, "unknown process");
@@ -176,26 +189,29 @@ impl Monitor {
     pub fn process(self: &Arc<Self>) {
         for event in self.scheduler.iter() {
             match event {
-                SchedulerEvent::ServiceSchedule { id, .. } => {
-                    if let Some(service) = self.get(&id)
-                        && service.info().active
-                    {
-                        service.restart(self.logger.as_ref(), self.make_stdin(id));
-                        self.scheduler.reschedule(&service);
-                    } else {
-                        tracing::warn!(id, "unknown service");
-                    }
-                }
                 SchedulerEvent::ServiceRestart { id, .. }
-                | SchedulerEvent::WatchServiceRestart { id, .. } => {
+                | SchedulerEvent::FsWatchServiceRestart { id, .. }
+                | SchedulerEvent::ServiceSchedule { id, .. }
+                | SchedulerEvent::PortWatchServiceStart { id, .. } => {
                     if let Some(service) = self.get(&id) {
                         if service.info().active {
-                            self.remove_watch(&service.id);
-                            service.restart(self.logger.as_ref(), self.make_stdin(id));
+                            if matches!(event, SchedulerEvent::PortWatchServiceStart { .. }) {
+                                self.set_portwatch_enabled(&id, false);
+
+                                if service.info().pid.is_some() {
+                                    tracing::debug!(id, "service already running, event ignored");
+                                    /* do not restart */
+                                    continue;
+                                }
+                            }
+                            self.remove_fswatch(&service.id);
+                            service.restart(self.logger.as_ref(), self.make_stdin(&service));
                             self.add_watch(&service)
                                 .unwrap_or_else(|err| tracing::error!(?err, "watcher failure"));
+                            /* will reschedule only if needed */
+                            self.scheduler.reschedule(&service);
                         } else {
-                            tracing::warn!(id, "not restarting inactive service");
+                            tracing::warn!(id, ?event, "not restarting inactive service");
                         }
                     } else {
                         tracing::warn!(id, "unknown service");
@@ -220,7 +236,6 @@ impl Monitor {
 
     pub fn run(self: &Arc<Self>) -> Result<()> {
         let _span = tracing::info_span!(parent: None, "monitor").entered();
-        *self.tid.lock().unwrap() = Some(gettid());
         let sigset = SignalSet::default() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT;
         for sig in &sigset {
             sig.set_handler(guard_sighandler)?;
@@ -241,6 +256,8 @@ impl Monitor {
         for srv in self.services.iter().filter(|srv| srv.info().active) {
             self.inject(&srv);
         }
+
+        *self.tid.lock().unwrap() = Some(gettid());
 
         let mut timer = Timer::new(Duration::from_millis(1), false);
         timer.start()?;
@@ -307,7 +324,7 @@ impl Monitor {
         let service = Arc::new(service);
         self.services.insert(id, Arc::clone(&service));
 
-        if service.info().active && self.inject(&service) {
+        if self.is_running() && service.info().active && self.inject(&service) {
             self.wake();
         }
 
@@ -320,7 +337,7 @@ impl Monitor {
     fn inject(self: &Arc<Self>, service: &Arc<Service>) -> bool {
         let (watch, wake) = if service.schedule.is_some() {
             (true, self.scheduler.reschedule(service))
-        } else if service.info().status != Status::Running {
+        } else if service.listen.is_none() && service.info().status != Status::Running {
             (
                 false,
                 self.scheduler.enqueue(SchedulerEvent::ServiceRestart {
@@ -351,10 +368,8 @@ impl Monitor {
             id: service.id,
             instant: Instant::now(),
         });
-        if service.schedule.is_some() {
-            /* exclusive reschedule from now, will not trigger right-away */
-            wake |= self.scheduler.reschedule(service);
-        }
+        /* exclusive reschedule from now, will not trigger right-away */
+        wake |= self.scheduler.reschedule(service);
         if wake {
             self.wake();
         }
@@ -363,7 +378,12 @@ impl Monitor {
     /// Stop and deactivate a service
     pub fn stop(&self, service: &Service) {
         service.set_active(false);
-        self.remove_watch(&service.id);
+        if service.watch.is_some() {
+            self.remove_fswatch(&service.id);
+        }
+        if service.listen.is_some() {
+            self.remove_portwatch(&service.id);
+        }
         /* don't wake, worst case there'll be a spurious wakeup */
         self.scheduler.remove(&service.id);
         service.stop();
@@ -373,27 +393,55 @@ impl Monitor {
     /// Reschedule a service
     ///
     /// Reactivates and schedules a scheduled service
-    pub fn reschedule(&self, service: &Service) {
+    pub fn reschedule(self: &Arc<Self>, service: &Service) {
         service.set_active(true);
-        /* inclusive reschedule, will spawn right away periodic tasks */
-        if service.schedule.is_some() && self.scheduler.reschedule(service) {
+        /* exclusive reschedule from now, will not trigger right-away */
+        if self.scheduler.reschedule(service) {
+            self.wake();
+        }
+        #[allow(clippy::collapsible_if)]
+        if service.watch.is_some() || service.listen.is_some() {
+            if let Err(err) = self.add_watch(service) {
+                tracing::error!(
+                    id = service.id,
+                    name = service.name,
+                    ?err,
+                    "failed to add watch"
+                );
+            }
+        }
+    }
+
+    /// enqueue a [SchedulerEvent::FsWatchServiceRestart] for the given service
+    pub fn on_fswatch_event(&self, service: &Service) {
+        if self
+            .scheduler
+            .enqueue(SchedulerEvent::FsWatchServiceRestart {
+                id: service.id,
+                instant: Instant::now() + self.watch_restart_interval,
+            })
+        {
             self.wake();
         }
     }
 
-    pub fn on_watch_event(self: &Arc<Self>, service: &Service) {
-        if self.scheduler.enqueue(SchedulerEvent::WatchServiceRestart {
-            id: service.id,
-            instant: Instant::now() + self.watch_restart_interval,
-        }) {
+    /// enqueue a [SchedulerEvent::PortWatchServiceStart] for the given service
+    pub fn on_portwatch_event(&self, service: &Service) {
+        if self
+            .scheduler
+            .enqueue(SchedulerEvent::PortWatchServiceStart {
+                id: service.id,
+                instant: Instant::now(),
+            })
+        {
             self.wake();
         }
     }
 
-    /// Add watches for the given service
+    /// Add watches for the given service ([PortWatch] and/or [FsWatch])
     ///
     /// Will remove existing watches and re-created it
-    #[tracing::instrument(fields(service = service.id), skip(self, service))]
+    #[tracing::instrument(level = "TRACE", fields(name = service.name, id = service.id), skip(self, service))]
     pub fn add_watch(self: &Arc<Self>, service: &Service) -> Result<()> {
         if let Some(watch) = service.watch.as_ref() {
             let mut guard = self.watcher.lock().unwrap();
@@ -401,21 +449,29 @@ impl Monitor {
                 Some(w) => w,
                 None => guard.insert(Watcher::new(Arc::downgrade(self))?),
             };
+            tracing::debug!("adding fs-watch");
             watcher.add(&service.id, watch)?;
+        }
+        if let Some(watch) = service.listen.as_ref() {
+            let mut guard = self.listener.lock().unwrap();
+            let listener = guard.get_or_insert_with(|| PortListener::new(Arc::downgrade(self)));
+            if !listener.has_watch(&service.id) {
+                tracing::debug!("adding port-watch");
+                listener.add(&service.id, watch)?;
+            }
         }
         Ok(())
     }
 
     /// Remove watches related to given service
-    #[tracing::instrument(skip(self))]
-    pub fn remove_watch(&self, service: &ServiceId) {
+    pub fn remove_fswatch(&self, service: &ServiceId) {
         let mut guard = self.watcher.lock().unwrap();
         if let Some(watcher) = guard.as_mut() {
             watcher.remove(service);
         }
     }
 
-    pub fn has_watch(&self, service: &ServiceId) -> bool {
+    pub fn has_fswatch(&self, service: &ServiceId) -> bool {
         let mut guard = self.watcher.lock().unwrap();
         if let Some(watcher) = guard.as_mut() {
             return watcher.has_watch(service);
@@ -423,12 +479,27 @@ impl Monitor {
         false
     }
 
+    pub fn remove_portwatch(&self, service: &ServiceId) {
+        let mut guard = self.listener.lock().unwrap();
+        if let Some(listener) = guard.as_mut() {
+            listener.remove(service);
+        }
+    }
+
+    pub fn set_portwatch_enabled(&self, service: &ServiceId, value: bool) {
+        let mut guard = self.listener.lock().unwrap();
+        if let Some(listener) = guard.as_mut() {
+            listener.set_enabled(service, value);
+        }
+    }
+
     /// Remove service
     pub fn remove(&self, service_id: &ServiceId) {
         self.services.remove(service_id);
         /* don't wake, worst case there'll be a spurious wakeup */
         self.scheduler.remove(service_id);
-        self.remove_watch(service_id);
+        self.remove_fswatch(service_id);
+        self.remove_portwatch(service_id);
     }
 
     /// Retrieve latest stats
@@ -450,8 +521,15 @@ impl Monitor {
         self.tid.lock().unwrap().is_some()
     }
 
-    fn make_stdin(&self, id: ServiceId) -> Option<Stdio> {
-        None
+    fn make_stdin(&self, service: &Service) -> Option<Stdio> {
+        if service.listen.is_some() {
+            let guard = self.listener.lock().unwrap();
+            guard
+                .as_ref()
+                .and_then(|g| g.socket_dup(&service.id).map(Stdio::from))
+        } else {
+            None
+        }
     }
 }
 
@@ -491,6 +569,7 @@ mod tests {
         (SignalSet::empty() + SIGALRM + SIGCHLD + SIGTERM + SIGHUP + SIGINT)
             .block()
             .expect("failed to block signals");
+        tracing::trace!("test env initialized");
     }
 
     #[test]
@@ -735,7 +814,7 @@ mod tests {
         use croner::Cron;
         let mon = Monitor::new();
         let mut service = Service::new("test_stopped", Command::new("sleep", ["300"]));
-        service.schedule = Some(Cron::from_str("* * * * * *")?);
+        service.schedule = Some(Box::new(Cron::from_str("* * * * * *")?));
         let service = mon.insert(service);
         let now = Instant::now();
 
