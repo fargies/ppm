@@ -21,7 +21,7 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 
 use clap::Parser;
 
@@ -31,7 +31,7 @@ pub use client::Client;
 mod server;
 pub use server::Server;
 
-use crate::api::{DEFAULT_SERVER_ADDR, Action};
+use crate::api::{Action, DEFAULT_SERVER_ADDR};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

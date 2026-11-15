@@ -24,7 +24,7 @@ mod action;
 pub use action::{Action, ActionResult};
 
 mod request;
-pub use request::{Request, Reply, RequestId};
+pub use request::{Reply, Request, RequestId};
 
 mod consts;
 pub use consts::*;

@@ -20,8 +20,8 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
+pub mod api;
 pub mod cmdline;
 pub mod monitor;
 pub mod service;
 pub mod utils;
-pub mod api;

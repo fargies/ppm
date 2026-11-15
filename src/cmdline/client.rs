@@ -25,7 +25,12 @@ use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use serde::de::DeserializeOwned;
 use std::{
-    collections::HashMap, io::{BufReader, stdout}, net::{TcpStream, ToSocketAddrs}, ops::{Deref, DerefMut}, path::PathBuf, time::{Duration, Instant},
+    collections::HashMap,
+    io::{BufReader, stdout},
+    net::{TcpStream, ToSocketAddrs},
+    ops::{Deref, DerefMut},
+    path::PathBuf,
+    time::{Duration, Instant},
 };
 use tabled::{
     Table, Tabled,

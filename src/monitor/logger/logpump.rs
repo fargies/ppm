@@ -26,7 +26,7 @@ use std::{
     os::fd::{AsRawFd, RawFd},
 };
 
-use super::{LogFile, AutoDate };
+use super::{AutoDate, LogFile};
 use crate::utils::{
     Buffer,
     libc::{Fcntl, FdFlags},

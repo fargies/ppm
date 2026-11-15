@@ -23,9 +23,9 @@
 
 #![allow(dead_code)]
 
-use libc::{timer_t, sigevent, itimerspec ,timer_create, timer_settime, timer_delete};
-use std::{ptr::null_mut, time::Duration};
+use libc::{itimerspec, sigevent, timer_create, timer_delete, timer_settime, timer_t};
 use std::io::Result as IoResult;
+use std::{ptr::null_mut, time::Duration};
 
 use super::libc_check;
 

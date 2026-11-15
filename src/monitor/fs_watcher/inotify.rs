@@ -30,7 +30,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use super::{Monitor, FsWatch, FsWatcherTrait};
+use super::{FsWatch, FsWatcherTrait, Monitor};
 use crate::{
     service::ServiceId,
     utils::{

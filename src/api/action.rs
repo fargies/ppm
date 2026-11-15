@@ -129,7 +129,7 @@ pub enum Action {
     ShowScheduler,
 
     /// Trigger a sys/monotonic clock sync
-    ClockCheck
+    ClockCheck,
 }
 
 fn parse_key_val<T, U>(
