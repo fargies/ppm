@@ -32,6 +32,9 @@ pub use fcntl::{Fcntl, FdFlags};
 mod dup;
 pub use dup::Dup;
 
+mod socket;
+pub use socket::SocketTrait;
+
 /// Set session-id
 ///
 /// Returns the new session-id
