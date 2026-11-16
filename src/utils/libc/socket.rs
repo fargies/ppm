@@ -39,6 +39,9 @@ pub trait SocketTrait {
     fn remote_addr(&self) -> IoResult<SocketAddr>;
 
     /// return true if socket is accepting new connections
+    ///
+    /// Only linux properly implements SO_ACCEPTCONN
+    #[cfg(target_os = "linux")]
     fn is_listening(&self) -> bool;
 
     /// return true if object is a socket
@@ -102,6 +105,7 @@ where
         make_sockaddr(&addr)
     }
 
+    #[cfg(target_os = "linux")]
     fn is_listening(&self) -> bool {
         let mut accepting: libc::c_int = 0;
         let mut len = std::mem::size_of_val(&accepting) as libc::socklen_t;
@@ -146,6 +150,7 @@ use super::*;
         let sock = TcpListener::bind("127.0.0.1:0")?;
 
         assert!(sock.is_socket());
+        #[cfg(target_os = "linux")]
         assert!(sock.is_listening());
         assert_eq!(
             sock.local_addr()?.to_string(),
@@ -156,6 +161,7 @@ use super::*;
         let connected = TcpStream::connect(sock.local_addr()?)?;
 
         assert!(connected.is_socket());
+        #[cfg(target_os = "linux")]
         assert!(!connected.is_listening());
         assert_eq!(
             connected.local_addr()?.to_string(),
@@ -173,6 +179,7 @@ use super::*;
         let file = MkTemp::file("socket_trait")?;
 
         assert!(!file.is_socket());
+        #[cfg(target_os = "linux")]
         assert!(!file.is_listening());
         file.local_addr().expect_err("should fail");
         file.remote_addr().expect_err("should fail");
