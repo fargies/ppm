@@ -244,6 +244,12 @@ impl Monitor {
         sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| {
             self.tid.lock().unwrap().take();
+            /* clear pending signals before restoring mask */
+            if let pending = SignalSet::pending()
+                && sigset.iter().any(|s| pending.contains(s))
+            {
+                let _ = sigset.wait();
+            }
             sigset.restore().unwrap();
         });
 
