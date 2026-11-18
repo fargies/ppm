@@ -374,17 +374,32 @@ mod tests {
                 .success(),
             "failed to add service"
         );
-        let mut tail = ppm()
-            .args(["log", "-f", "test"])
-            .stdout(Stdio::piped())
-            .spawn()?;
-        tail.stdout
-            .as_mut()
-            .expect("stdout not captured")
-            .add_flag(FdFlags::NONBLOCK)?;
+        let mut tail: Option<Child> = None;
         let mut buf = [0; 10];
         wait_for!(
-            get_payload(&mut tail, &mut buf)? == "world\n",
+            {
+                if tail
+                    .as_mut()
+                    .is_none_or(|v| v.try_wait().is_ok_and(|v| v.is_some()))
+                {
+                    /* log command may simply return if no files were created (yet) */
+                    tail = Some(
+                        ppm()
+                            .args(["log", "-f", "test"])
+                            .env("RUST_BACKTRACE", "1")
+                            .env("RUST_LOG", "trace")
+                            .stdout(Stdio::piped())
+                            .spawn()?,
+                    );
+                    tail.as_mut()
+                        .unwrap()
+                        .stdout
+                        .as_mut()
+                        .expect("stdout not captured")
+                        .add_flag(FdFlags::NONBLOCK)?;
+                }
+                get_payload(tail.as_mut().unwrap(), &mut buf)? == "world\n"
+            },
             Duration::from_secs(3),
             "failed to get tail: {}",
             str::from_utf8(&buf)?
@@ -396,7 +411,7 @@ mod tests {
 
         buf.fill(0);
         wait_for!(
-            get_payload(&mut tail, &mut buf)? == "world\n",
+            get_payload(tail.as_mut().unwrap(), &mut buf)? == "world\n",
             Duration::from_secs(6),
             "failed to get tail: {}",
             str::from_utf8(&buf)?
@@ -413,14 +428,15 @@ mod tests {
 
         buf.fill(0);
         wait_for!(
-            get_payload(&mut tail, &mut buf)? == "world\n",
+            get_payload(tail.as_mut().unwrap(), &mut buf)? == "world\n",
             Duration::from_secs(6),
             "failed to get tail: {}",
             str::from_utf8(&buf)?
         )?;
-        eprintln!("killing tail");
-        unsafe { libc::kill(tail.id() as i32, libc::SIGTERM) };
-        tail.wait()?;
+
+        unsafe { libc::kill(tail.as_ref().unwrap().id() as i32, libc::SIGTERM) };
+        tail.unwrap().wait()?;
+
         Ok(())
     }
 }
