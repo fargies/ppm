@@ -25,7 +25,6 @@ use std::{
     cell::Cell,
     fs::File,
     io::{self, stdout},
-    os::fd::{AsRawFd, IntoRawFd, RawFd},
     path::PathBuf,
     time::Duration,
 };
@@ -34,7 +33,7 @@ use crate::{
     cmdline::Action,
     utils::{
         OnDrop,
-        poller::{Poller, PollerFlags},
+        poller::{Poller, PollerFlags, PollerWriter},
         signal::{SIGINT, SIGTERM, Signal},
     },
 };
@@ -51,14 +50,12 @@ pub struct ClientLogTracker<'a> {
 }
 
 thread_local! {
-    static LOG_TRACKER_FD: Cell<Option<RawFd>> = const { Cell::new(None) };
+    static LOG_TRACKER_FD: Cell<Option<PollerWriter>> = const { Cell::new(None) };
 }
 
 extern "C" fn client_sighandler(sig: libc::c_int) {
-    if let Some(fd) = LOG_TRACKER_FD.take() {
-        unsafe {
-            libc::close(fd);
-        }
+    if let Some(mut writer) = LOG_TRACKER_FD.take() {
+        writer.exit();
     }
     // not using tracing in signal handlers
     eprintln!("interrupted ({:?})", Signal(sig));
@@ -78,7 +75,6 @@ impl<'a> ClientLogTracker<'a> {
     pub fn log(&mut self) -> Result<()> {
         let mut buf = vec![0; 1024];
         let mut ino = Inotify::init()?;
-        LOG_TRACKER_FD.replace(Some(ino.as_raw_fd()));
 
         ino.watches()
             .add(&self.filename, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
@@ -87,14 +83,16 @@ impl<'a> ClientLogTracker<'a> {
         let _drop_guard = OnDrop::new(|| {
             SIGTERM.restore().unwrap();
             SIGINT.restore().unwrap();
+            LOG_TRACKER_FD.take();
         });
         SIGTERM.set_handler(client_sighandler)?;
         SIGINT.set_handler(client_sighandler)?;
 
-        let mut poller = Poller::default();
+        let (mut poller, writer) = Poller::with_pipe();
         let mut pfds = poller.make_pfds(2);
         pfds.push(&stdout(), PollerFlags::HUP | PollerFlags::ERR);
         pfds.push(&ino, PollerFlags::IN | PollerFlags::ERR);
+        LOG_TRACKER_FD.replace(Some(writer));
 
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
@@ -103,9 +101,15 @@ impl<'a> ClientLogTracker<'a> {
                 &mut stdout(),
             )?;
 
-            match poller.poll(&mut pfds, None) {
-                Ok(_) => (),
-                Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
+            let timeout = if refresh {
+                Some(Duration::from_secs(3))
+            } else {
+                None
+            };
+            match poller.poll(&mut pfds, timeout) {
+                Ok(Some(_)) => return Ok(()),
+                Ok(None) => (),
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => return Ok(()),
                 Err(err) => return Err(err.into()),
             };
             for (_, flags) in pfds.iter() {
@@ -115,11 +119,7 @@ impl<'a> ClientLogTracker<'a> {
                 }
             }
 
-            for event in match ino.read_events(&mut buf) {
-                Ok(event) => event,
-                Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
-                Err(err) => return Err(err.into()),
-            } {
+            for event in ino.read_events(&mut buf)? {
                 refresh = event.mask.contains(EventMask::CLOSE_WRITE);
                 tracing::trace!(?event, refresh, "event received");
             }
@@ -140,10 +140,7 @@ impl<'a> ClientLogTracker<'a> {
                         ino.watches()
                             .add(new_file, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
                         let file = File::open(new_file)?;
-                        if LOG_TRACKER_FD.replace(Some(ino.as_raw_fd())).is_none() {
-                            /* signal occured whilst replacing file */
-                            return self.forget_file();
-                        }
+
                         self.file = Some(file);
                         self.filename = new_file.clone();
                         pfds.pop();
@@ -151,7 +148,6 @@ impl<'a> ClientLogTracker<'a> {
                         break;
                     } else {
                         tracing::warn!("new log-file not detected");
-                        std::thread::sleep(Duration::from_secs(3));
                     }
                 }
             }
@@ -163,36 +159,35 @@ impl<'a> ClientLogTracker<'a> {
         let _drop_guard = OnDrop::new(|| {
             SIGTERM.restore().unwrap();
             SIGINT.restore().unwrap();
+            LOG_TRACKER_FD.take();
         });
 
         SIGTERM.set_handler(client_sighandler)?;
         SIGINT.set_handler(client_sighandler)?;
-        LOG_TRACKER_FD.replace(Some(
-            self.file.as_ref().context("already closed")?.as_raw_fd(),
-        ));
+
         /* this is used mainly to detect output closure */
-        let mut poller = Poller::default();
+        let (mut poller, writer) = Poller::with_pipe();
         let mut pfds = poller.make_pfds(1);
         pfds.push(&stdout(), PollerFlags::HUP | PollerFlags::ERR);
+        LOG_TRACKER_FD.replace(Some(writer));
 
         loop {
             let _span = tracing::info_span!(parent: None, "log_tracker").entered();
 
             /* poll file for new-data every sec for 5sec */
             for _ in 0..5 {
-                match io::copy(
+                if let size = io::copy(
                     &mut self.file.as_mut().context("already closed")?,
                     &mut stdout(),
-                ) {
-                    Ok(0) => (),
-                    Ok(size) => tracing::trace!(size, "bytes copied"),
-                    Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
-                    Err(err) => return Err(err.into()),
-                };
+                )? && size != 0
+                {
+                    tracing::trace!(size, "bytes copied");
+                }
                 /* using poll to sleep, monitoring output state */
                 match poller.poll(&mut pfds, Some(Duration::from_secs(1))) {
-                    Ok(_) => (),
-                    Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
+                    Ok(Some(_)) => return Ok(()),
+                    Ok(None) => (),
+                    Err(err) if err.kind() == io::ErrorKind::Interrupted => return Ok(()),
                     Err(err) => return Err(err.into()),
                 };
                 for (_, flags) in pfds.iter() {
@@ -214,28 +209,10 @@ impl<'a> ClientLogTracker<'a> {
             {
                 tracing::trace!(file = ?new_file, "new log-file detected");
                 let file = File::open(new_file)?;
-                if LOG_TRACKER_FD.replace(Some(file.as_raw_fd())).is_none() {
-                    /* signal occured whilst replacing file */
-                    return self.forget_file();
-                }
+
                 self.file = Some(file);
                 self.filename = new_file.clone();
             }
-        }
-    }
-
-    fn forget_file(&mut self) -> Result<()> {
-        // drop the [File] not calling close,
-        // already achieved by [LOG_TRACKER_FD].
-        self.file.take().map(|f| f.into_raw_fd());
-        Ok(())
-    }
-}
-
-impl<'a> Drop for ClientLogTracker<'a> {
-    fn drop(&mut self) {
-        if LOG_TRACKER_FD.take().is_none() {
-            self.forget_file().unwrap();
         }
     }
 }
