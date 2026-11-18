@@ -22,10 +22,9 @@
 
 #![allow(dead_code)]
 
-use anyhow::{Context, Result};
 use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, c_short, nfds_t, poll, pollfd};
 use std::{
-    io::{PipeReader, PipeWriter, Read, Write, pipe},
+    io::{PipeReader, PipeWriter, Read, Result as IoResult, Write, pipe},
     os::fd::{AsRawFd, RawFd},
     time::Duration,
 };
@@ -140,7 +139,7 @@ impl Poller {
         &mut self,
         pfds: &mut PollerFds,
         timeout: Option<Duration>,
-    ) -> Result<Option<PollerWord>> {
+    ) -> IoResult<Option<PollerWord>> {
         let timeout = timeout.map(|d| d.as_millis() as libc::c_int).unwrap_or(-1);
         let has_pipe = match self.rx.as_ref() {
             Some(rx) => {
@@ -151,7 +150,7 @@ impl Poller {
         };
 
         let ret = unsafe { poll(pfds.pfds.as_mut_ptr(), pfds.pfds.len() as nfds_t, timeout) };
-        check(ret.min(0)).context("failed to poll")?;
+        check(ret.min(0))?;
         if has_pipe {
             let rx = pfds.pfds.pop().unwrap();
 

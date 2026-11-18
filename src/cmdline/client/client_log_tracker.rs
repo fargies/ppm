@@ -87,7 +87,6 @@ impl<'a> ClientLogTracker<'a> {
         let _drop_guard = OnDrop::new(|| {
             SIGTERM.restore().unwrap();
             SIGINT.restore().unwrap();
-            LOG_TRACKER_FD.take();
         });
         SIGTERM.set_handler(client_sighandler)?;
         SIGINT.set_handler(client_sighandler)?;
@@ -104,7 +103,11 @@ impl<'a> ClientLogTracker<'a> {
                 &mut stdout(),
             )?;
 
-            poller.poll(&mut pfds, None)?;
+            match poller.poll(&mut pfds, None) {
+                Ok(_) => (),
+                Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
+                Err(err) => return Err(err.into()),
+            };
             for (_, flags) in pfds.iter() {
                 if flags.has_error() {
                     tracing::info!(flags = ?flags, "output closed");
@@ -160,7 +163,6 @@ impl<'a> ClientLogTracker<'a> {
         let _drop_guard = OnDrop::new(|| {
             SIGTERM.restore().unwrap();
             SIGINT.restore().unwrap();
-            LOG_TRACKER_FD.take();
         });
 
         SIGTERM.set_handler(client_sighandler)?;
@@ -188,7 +190,11 @@ impl<'a> ClientLogTracker<'a> {
                     Err(err) => return Err(err.into()),
                 };
                 /* using poll to sleep, monitoring output state */
-                poller.poll(&mut pfds, Some(Duration::from_secs(1)))?;
+                match poller.poll(&mut pfds, Some(Duration::from_secs(1))) {
+                    Ok(_) => (),
+                    Err(_) if LOG_TRACKER_FD.take().is_none() => return self.forget_file(),
+                    Err(err) => return Err(err.into()),
+                };
                 for (_, flags) in pfds.iter() {
                     if flags.has_error() {
                         tracing::info!(flags = ?flags, "output closed");
@@ -223,5 +229,13 @@ impl<'a> ClientLogTracker<'a> {
         // already achieved by [LOG_TRACKER_FD].
         self.file.take().map(|f| f.into_raw_fd());
         Ok(())
+    }
+}
+
+impl<'a> Drop for ClientLogTracker<'a> {
+    fn drop(&mut self) {
+        if LOG_TRACKER_FD.take().is_none() {
+            self.forget_file().unwrap();
+        }
     }
 }
