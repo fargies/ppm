@@ -23,6 +23,8 @@
 mod mktemp;
 pub use mktemp::MkTemp;
 
+pub mod ppm;
+
 #[tracing::instrument(level = "DEBUG", name = "wait_for", skip(fun))]
 pub(crate) fn _wait_for<F, K>(mut fun: F, expiry: std::time::Duration) -> anyhow::Result<K>
 where

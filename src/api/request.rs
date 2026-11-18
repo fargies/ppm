@@ -79,7 +79,7 @@ impl From<Action> for Request {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Reply<'a, T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Cow<'a, Option<RequestId>>,
@@ -147,5 +147,46 @@ mod tests {
             assert_eq!(request, &result);
         }
         Ok(())
+    }
+
+    #[test]
+    fn reply_serde() -> Result<()> {
+        let reply: Reply<_> = serde_json::from_str(r#"{"id": 12, "result": null}"#)?;
+        assert_eq!(Reply::ok(&Some(12.into()), ()), reply);
+
+        let reply: Reply<_> = serde_json::from_str(r#"{"result": 42}"#)?;
+        assert_eq!(Reply::ok(&None, 42), reply);
+
+        let reply: Reply<()> = serde_json::from_str(r#"{"error": "critical failure"}"#)?;
+        assert_eq!(Reply::<()>::err(&None, "critical failure"), reply);
+        Ok(())
+    }
+
+    #[test]
+    fn serde_errors() {
+        let err = serde_json::from_str::<ActionResult<()>>("{}")
+            .expect_err("should fail")
+            .to_string();
+        assert!(err.contains("result"), "invalid error message: {err}");
+
+        let err = serde_json::from_str::<ActionResult<()>>("42")
+            .expect_err("should fail")
+            .to_string();
+        assert!(err.contains("result"), "invalid error message: {err}");
+
+        let err = serde_json::from_str::<Request>("42")
+            .expect_err("should fail")
+            .to_string();
+        assert!(err.contains("Request"), "invalid error message: {err}");
+    }
+
+    #[test]
+    fn request_debug() {
+        for req in [
+            Request::new(12, Action::List),
+            Request::new("test".to_string(), Action::Info { service: None }),
+        ] {
+            eprintln!("{req:?}");
+        }
     }
 }

@@ -512,7 +512,7 @@ impl Monitor {
     }
 
     #[tracing::instrument(level = "TRACE", skip(self))]
-    fn wake(&self) {
+    pub fn wake(&self) {
         let tid = self.tid.lock().unwrap();
         if let Some(tid) = tid.as_ref()
             && let Err(err) = Signal::kill_thread(*tid, SIGALRM)
