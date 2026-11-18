@@ -147,26 +147,21 @@ where
     Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
 }
 
-impl Default for Action {
-    fn default() -> Self {
-        Action::Daemon { config: None }
-    }
-}
-
 #[derive(Debug)]
 pub enum ActionResult<T> {
     Ok(T),
     Err(String),
 }
 
-impl<T> ActionResult<T> {
-    pub fn map<F, R>(self, f: F) -> ActionResult<R>
-    where
-        F: FnOnce(T) -> R,
-    {
-        match self {
-            ActionResult::Ok(value) => ActionResult::Ok(f(value)),
-            ActionResult::Err(err) => ActionResult::Err(err),
+impl<T> PartialEq for ActionResult<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ok(value1), Self::Ok(value2)) => value1 == value2,
+            (Self::Err(err1), Self::Err(err2)) => err1 == err2,
+            _ => false,
         }
     }
 }

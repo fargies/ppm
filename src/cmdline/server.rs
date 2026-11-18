@@ -274,9 +274,11 @@ impl Server {
                 serde_json::to_writer(stream, &Reply::ok(req_id, monitor.scheduler.dump()))?;
             }
             Action::ClockCheck => {
-                monitor.scheduler.enqueue(SchedulerEvent::ClockCheck {
+                if monitor.scheduler.enqueue(SchedulerEvent::ClockCheck {
                     instant: Instant::now(),
-                });
+                }) {
+                    monitor.wake()
+                }
                 serde_json::to_writer(stream, &Reply::ok(req_id, ()))?
             }
             Action::Add {

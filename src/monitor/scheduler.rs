@@ -159,7 +159,7 @@ impl PartialOrd for SchedulerEvent {
 
 impl PartialEq for SchedulerEvent {
     fn eq(&self, other: &Self) -> bool {
-        self.instant().eq(other.instant())
+        self.instant().eq(other.instant()) && self.is_source_eq(other)
     }
 }
 

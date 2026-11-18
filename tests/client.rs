@@ -20,62 +20,28 @@
 ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
 */
 
-use std::{
-    io::Write,
-    path::Path,
-    process::{Child, Command},
-};
-
-use anyhow::Result;
-use ppm::utils::{
-    OnDrop,
-    libc::{Fcntl, FdFlags},
-};
-use serial_test::file_serial;
-
 mod utils;
-use utils::{MkTemp, wait_for};
-
-const PPM_BIN: &str = std::env!("CARGO_BIN_EXE_ppm");
-const SERVER_ADDR: &str = "127.0.0.1:34567";
 
 /* to eliminate this from coverage */
 mod tests {
+    use std::{io::Write, path::Path, process::Child};
+
+    use anyhow::Result;
+    use ppm::utils::{
+        OnDrop,
+        libc::{Fcntl, FdFlags},
+    };
+    use serial_test::file_serial;
+
     use std::{io::Read, process::Stdio, time::Duration};
 
     use anyhow::Context;
 
-    use super::*;
-
-    fn ppm() -> Command {
-        let mut ret = Command::new(PPM_BIN);
-        ret.args(["--addr", SERVER_ADDR]);
-        ret
-    }
-
-    fn kill_server(server: Child) {
-        let mut server = server;
-        unsafe {
-            libc::kill(server.id() as i32, libc::SIGTERM);
-        }
-        assert!(
-            server.wait().expect("failed to terminate server").success(),
-            "server improper termination"
-        );
-        server.kill().expect("failed to kill server")
-    }
-
-    fn wait_server() -> Result<()> {
-        wait_for!(
-            ppm()
-                .args(["ls"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()?
-                .success()
-        )
-        .context("failed to connect server")
-    }
+    use crate::utils::{
+        MkTemp,
+        ppm::{ECHO_SERVICE_ARGS, kill_server, ppm, wait_server},
+        wait_for,
+    };
 
     #[test]
     #[file_serial(server)]
@@ -136,7 +102,7 @@ mod tests {
             );
         }
 
-        for cmd in ["restart", "stop", "reschedule", "remove"] {
+        for cmd in ["restart", "stop", "reschedule", "stats", "info", "remove"] {
             assert!(
                 ppm().arg(cmd).arg("test").status()?.success(),
                 "failed to run command: {:?}",
@@ -233,19 +199,7 @@ mod tests {
         wait_server()?;
 
         assert!(
-            ppm()
-                .args([
-                    "add",
-                    "--name",
-                    "test",
-                    "--env",
-                    "RUST_LOG=",
-                    "--",
-                    "echo",
-                    "world"
-                ])
-                .status()?
-                .success(),
+            ppm().args(ECHO_SERVICE_ARGS).status()?.success(),
             "failed to add service"
         );
 
@@ -359,19 +313,7 @@ mod tests {
         wait_server()?;
 
         assert!(
-            ppm()
-                .args([
-                    "add",
-                    "--name",
-                    "test",
-                    "--env",
-                    "RUST_LOG=",
-                    "--",
-                    "echo",
-                    "world"
-                ])
-                .status()?
-                .success(),
+            ppm().args(ECHO_SERVICE_ARGS).status()?.success(),
             "failed to add service"
         );
         let mut tail: Option<Child> = None;
