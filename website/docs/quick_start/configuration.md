@@ -19,13 +19,6 @@ PPM_CONFIG="config.yml" ppm-daemon
 The configuration file describes services and daemon configuration:
 
 ```yaml
-# Statistics refreshing period (optional, defaults to 10s)
-stats_interval: 10s
-# Service restart base time (optional, defaults to 1s)
-restart_interval: 1s
-# System clock checking interval (optional, defaults to 1h)
-clock_check_interval: 1h
-
 services:
   # Basic service definition
   - name: my_test_service
@@ -46,6 +39,11 @@ services:
         MY_VAR: "value"
     # schedule the service to run every 30 seconds
     schedule: "*/30 * * * * *"
+    # start the service on incoming connections
+    listen: :8080
 ```
 
 It may be built and generated using the cli (see [Usage](/quick_start/usage) section).
+
+For more details about configuration options, please see
+[Configuration](/doc/configuration) documentation section.

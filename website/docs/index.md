@@ -39,6 +39,11 @@ features:
     icon: <i class="bi bi-binoculars feature-logo text-4xl"></i>
     link: /doc/file_monitoring
 
+  - title: Network Listening
+    details: Automatically starts services when incoming network connections are received.
+    icon: <i class="bi bi-ear feature-logo text-4xl"></i>
+    link: /doc/network_listening
+
   - title: Log File Rotation
     details: Automatically saves, rotates, and manages logs per service, keeping recent logs and limiting disk usage.
     icon: <i class="bi bi-arrow-repeat feature-logo text-4xl"></i>

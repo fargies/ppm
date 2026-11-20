@@ -1,0 +1,4 @@
+services:
+  - name: ppm-web
+    command: ppm-web --idle-shutdown=10m
+    listen: 8080

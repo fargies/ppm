@@ -1,0 +1,36 @@
+services:
+  - name: minimal
+    command: ls -la
+  - name: test1
+    id: 1
+    command: ls -la
+    listen: 8080
+    watch: "."
+  - name: test2
+    command: ["ls", "-la"]
+    listen: :8080
+    schedule: "*/15 * * * * *"
+    workdir: "."
+    watch: ["."]
+  - name: test3
+    command:
+      path: "ls"
+    listen: 127.0.0.1:8080
+    watch:
+      paths: "."
+    # seconds is elided
+    schedule: "*/15 0-9 1-12 JAN TUE"
+  - name: test4
+    command:
+      path: "ls"
+      args: ["-la"]
+      env:
+        DEBUG: "*"
+    listen: "[::1]:8080"
+    schedule: "* */15 0-9 1-31 1-12 1-7"
+    watch:
+      include: ["*.c"]
+      max_depth: 12
+      exclude: ["*", "*.o"]
+      paths: [".", "test"]
+      schedule: "*/15 0-9 1-12 JAN-MAR SUN-WED"

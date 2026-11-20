@@ -8,6 +8,8 @@ designed to help you monitor and diagnose server health and behavior with ease.
 Using the [data/test-logger-config.yml](https://github.com/fargies/ppm/blob/master/data/test-logger-config.yml)
 configuration file:
 
+<!-- markdownlint-capture -->
+<!-- markdownlint-disable MD013 -->
 ```bash
 INFO starting daemon
 INFO find_config_file: return=Some("data/test-logger-config.yml")
@@ -22,6 +24,7 @@ INFO monitor:process:reschedule{last=Some(2026-02-25T17:36:01+01:00) id=1 name="
 INFO monitor: service exited id=1 name="test" pid=1282132 code=0
 INFO monitor: Running -> Finished
 ```
+<!-- markdownlint-restore -->
 
 
 ## Message Configuration

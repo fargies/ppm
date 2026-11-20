@@ -1,6 +1,8 @@
-# Service File Change Monitoring
+# File Change Monitoring
 
 A service can be automatically restarted when files are modified in watched directories.
+
+## Enabling the File Watcher
 
 To enable this feature, add a `watch` entry to the service definition:
 
@@ -12,7 +14,7 @@ To enable this feature, add a `watch` entry to the service definition:
 ```
 
 Files or directories can also be watched using filters to _include_ or _exclude_
-specific patterns (see [Files and Paths filtering]):
+specific patterns (see [Files and Paths Filtering](#files-and-paths-filtering)):
 
 ```yaml
 - id: 1
@@ -42,6 +44,18 @@ rules, as implemented by [globset](https://docs.rs/globset/latest/globset/#synta
 2. On the file-name when a change is detected.
 
 The `include` and `exclude` rules are applied at both stages.
+
+Files and directories are **included by default**, a file or directory is
+**excluded** if it matches **any exclude** rule (even builtins) and **no
+include** rules, matching an explicit _include_ rule will forcefully include the
+file or directory, example:
+
+```yaml
+# `toto.k` files will always be included
+include: [ "toto.k" ]
+# other `*.k` files are excluded
+exclude: [ "*.k" ]
+```
 
 Some built-in exclusions are always enabled:
 

@@ -68,7 +68,7 @@ pub struct Monitor {
     #[serde(with = "human::duration")]
     pub restart_interval: std::time::Duration,
     #[serde(with = "human::duration")]
-    pub watch_restart_interval: std::time::Duration,
+    pub watch_restart_delay: std::time::Duration,
     #[serde(with = "human::duration")]
     pub clock_check_interval: std::time::Duration,
     #[serde(with = "utils::serializers::service_dashmap")]
@@ -96,7 +96,7 @@ impl Default for Monitor {
         Self {
             stats_interval: Duration::from_secs(10),
             restart_interval: Duration::from_secs(1),
-            watch_restart_interval: Duration::from_secs(3),
+            watch_restart_delay: Duration::from_secs(3),
             clock_check_interval: Duration::from_hours(1),
             services: Default::default(),
             logger: Default::default(),
@@ -425,7 +425,7 @@ impl Monitor {
             .scheduler
             .enqueue(SchedulerEvent::FsWatchServiceRestart {
                 id: service.id,
-                instant: Instant::now() + self.watch_restart_interval,
+                instant: Instant::now() + self.watch_restart_delay,
             })
         {
             self.wake();
