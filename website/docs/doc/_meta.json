@@ -1,7 +1,10 @@
 [
+  "configuration",
+  "restart_policy",
   "resource_usage",
   "scheduling",
   "file_monitoring",
+  "network_listening",
   "log_rotate",
   "server_traces",
   "changelog"

@@ -73,7 +73,7 @@ mod tests {
         let temp = MkTemp::dir("ppm-watch")?;
 
         let mon = Arc::new(Monitor {
-            watch_restart_interval: Duration::from_millis(100),
+            watch_restart_delay: Duration::from_millis(100),
             ..Default::default()
         });
         let service = {
@@ -112,10 +112,10 @@ mod tests {
     fn single_file() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch-file")?;
         let file = temp.as_ref().join("file");
-        let watch_restart_interval = Duration::from_millis(100);
+        let watch_restart_delay = Duration::from_millis(100);
 
         let mon = Arc::new(Monitor {
-            watch_restart_interval,
+            watch_restart_delay,
             ..Default::default()
         });
         File::create(&file)?;
@@ -176,13 +176,13 @@ mod tests {
     fn filters() -> Result<()> {
         let temp = MkTemp::dir("ppm-watch-file")?;
         let file = MkTemp::file("ppm-watch-filter-file")?;
-        let watch_restart_interval = Duration::from_millis(100);
+        let watch_restart_delay = Duration::from_millis(100);
 
         create_dir_all(make_path(&temp, ["valid", "subdir"]))?;
         create_dir_all(make_path(&temp, ["invalid", "subdir"]))?;
 
         let mon = Arc::new(Monitor {
-            watch_restart_interval,
+            watch_restart_delay,
             ..Default::default()
         });
         let service = {

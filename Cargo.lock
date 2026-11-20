@@ -849,6 +849,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "serial_test",
+ "shlex",
  "sysinfo",
  "tabled",
  "tracing",

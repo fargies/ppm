@@ -98,3 +98,7 @@ rspress-doc a > img[alt="GitHub Sponsors"] {
     padding-top: 0.25rem;
     padding-bottom: 0.25rem;
 }
+
+.rspress-home-feature-detail {
+  text-align: center;
+}

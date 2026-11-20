@@ -35,6 +35,8 @@ source directory.
 
 To install PPM on a [Debian](https://www.debian.org/) Linux distribution:
 
+<!-- markdownlint-capture -->
+<!-- markdownlint-disable MD013 -->
 ```bash
 export REPO_URL=https://www.gremory.org/gitea/api/packages/fargie_s/debian
 source /etc/os-release
@@ -45,6 +47,7 @@ echo "deb [signed-by=/etc/apt/keyrings/gitea-fargie_s.asc] ${REPO_URL} ${VERSION
 sudo apt update
 sudo apt install partner-pm
 ```
+<!-- markdownlint-restore -->
 
 ## On ArchLinux
 

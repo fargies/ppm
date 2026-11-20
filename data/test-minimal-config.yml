@@ -1,0 +1,3 @@
+services:
+  - name: test
+    command: echo world

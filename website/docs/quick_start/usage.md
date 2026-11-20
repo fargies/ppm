@@ -48,6 +48,3 @@ the following states:
 - **Crashed**
   The service terminated with a non-zero exit code, or received a signal other
   than `SIGTERM`.
-
-When a service enters the **Crashed** state, it is automatically restarted by
-the daemon using an exponential backoff strategy: `interval * (2^(nb_restart - 1))`

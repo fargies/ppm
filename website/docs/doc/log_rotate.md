@@ -40,28 +40,32 @@ logger:
 
 ### Option Details
 
-- path\
+- **path**\
   Directory where log files will be written.\
   If the directory does not exist, it will be created automatically.\
-  PPM must have write permissions for this directory.
+  PPM must have write permissions for this directory.\
+  _Default: `/var/log`_
 
-- max_files\
+- **max_files**\
   The maximum number of log files kept per service.\
-  When the limit is reached, the oldest log file is removed.
+  When the limit is reached, the oldest log file is removed.\
+  _Default: `3`_
 
-- max_file_size\
+- **max_file_size**\
   The size threshold that triggers log rotation.\
-  When the active log file reaches this size, a new log file is created.
+  When the active log file reaches this size, a new log file is created.\
+  _Default: `20MiB`_
 
-- auto_date\
+- **auto_date**\
   Automatically prepend [RFC3339](https://datatracker.ietf.org/doc/html/rfc3339)
   timestamps to each log line.\
   When enabled, PPM inspects the first log line of each service and
   automatically disables this feature if the output already appears to contain
   timestamps matching the current time (based on year and `HH:` pattern
-  detection), preventing duplicate timestamps.
+  detection), preventing duplicate timestamps.\
+_Default: `true`_
 
-**Note:** A log file may slightly exceed max_file_size to ensure the last
+**Note:** A log file may slightly exceed _max_file_size_ to ensure the last
 buffered log line is fully written and not truncated.
 
 ## Log File Naming
