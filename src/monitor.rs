@@ -244,6 +244,10 @@ impl Monitor {
         sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| {
             self.tid.lock().unwrap().take();
+            /* watcher and listener may continue to emit SIGALRM */
+            self.watcher.lock().unwrap().take();
+            self.listener.lock().unwrap().take();
+
             /* clear pending signals before restoring mask */
             if let pending = SignalSet::pending()
                 && sigset.iter().any(|s| pending.contains(s))
