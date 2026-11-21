@@ -241,7 +241,7 @@ impl Monitor {
         for sig in &sigset {
             sig.set_handler(guard_sighandler)?;
         }
-        sigset.block()?;
+        let blocked = sigset.block()?;
         let _ondrop = utils::OnDrop::new(|| {
             self.tid.lock().unwrap().take();
             /* watcher and listener may continue to emit SIGALRM */
@@ -254,7 +254,7 @@ impl Monitor {
             {
                 let _ = sigset.wait();
             }
-            sigset.restore().unwrap();
+            blocked.restore().unwrap();
         });
 
         self.scheduler.clear();
@@ -612,7 +612,7 @@ mod tests {
             sig.set_handler(guard_sighandler)?;
         }
 
-        sigset.block()?;
+        let blocked = sigset.block()?;
         let srv = Service::new("test_crash", Command::new("false", ["-la"]));
 
         srv.start(None, None);
@@ -620,7 +620,7 @@ mod tests {
         assert_eq!(sigset.wait()?, SIGCHLD);
         Monitor::default().on_sigchld();
 
-        sigset.restore()?;
+        blocked.restore()?;
         Ok(())
     }
 

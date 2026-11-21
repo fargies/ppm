@@ -60,6 +60,9 @@ pub const SIGHUP: Signal = Signal(libc::SIGHUP);
 pub const SIGURG: Signal = Signal(libc::SIGURG);
 pub const SIGIO: Signal = Signal(libc::SIGIO);
 pub const SIGPIPE: Signal = Signal(libc::SIGPIPE);
+/* there are 30 base signals (excluding rt that's out of scope here) */
+const SIG_MIN: u8 = 1;
+const SIG_MAX: u8 = 31;
 
 static FULL_SET: LazyLock<SignalSet> = LazyLock::new(|| {
     SignalSet(unsafe {
@@ -158,6 +161,8 @@ impl From<libc::c_int> for Signal {
     }
 }
 
+/// Set of signals
+#[derive(Clone)]
 pub struct SignalSet(pub libc::sigset_t);
 
 impl Debug for SignalSet {
@@ -179,9 +184,19 @@ impl Debug for SignalSet {
 
 impl SignalSet {
     /// Block signals in the set
+    ///
+    /// returns effectively blocked [SignalSet]
     #[tracing::instrument(fields(pid = getpid(), tid = gettid()), level = "TRACE", err, ret)]
-    pub fn block(&self) -> IoResult<()> {
-        unsafe { libc_check(libc::pthread_sigmask(libc::SIG_BLOCK, &self.0, null_mut())) }
+    pub fn block(&self) -> IoResult<SignalSet> {
+        let mut effective = SignalSet::empty();
+        unsafe {
+            libc_check(libc::pthread_sigmask(
+                libc::SIG_BLOCK,
+                &self.0,
+                &mut effective.0,
+            ))?;
+            Ok(self.clone() - effective)
+        }
     }
 
     /// Unblock signals in the set
@@ -259,7 +274,7 @@ impl SignalSet {
 
     pub fn iter<'a>(&'a self) -> SignalSetIterator<'a> {
         SignalSetIterator {
-            index: 0,
+            index: SIG_MIN,
             sigset: self,
         }
     }
@@ -305,6 +320,28 @@ impl std::ops::Sub<Signal> for SignalSet {
     }
 }
 
+impl std::ops::Sub<SignalSet> for SignalSet {
+    type Output = SignalSet;
+
+    fn sub(self, rhs: SignalSet) -> Self::Output {
+        rhs.into_iter().fold(self, |acc, sig| acc - sig)
+    }
+}
+
+impl std::ops::Add<SignalSet> for SignalSet {
+    type Output = SignalSet;
+
+    fn add(self, rhs: SignalSet) -> Self::Output {
+        rhs.into_iter().fold(self, |acc, sig| acc + sig)
+    }
+}
+
+impl From<Signal> for SignalSet {
+    fn from(value: Signal) -> Self {
+        Self::empty() + value
+    }
+}
+
 pub struct SignalSetIterator<'a> {
     index: u8,
     sigset: &'a SignalSet,
@@ -315,7 +352,7 @@ impl Iterator for SignalSetIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut sig = Signal(0);
-        for i in self.index..32 {
+        for i in self.index..=SIG_MAX {
             sig.0 = i.into();
             if self.sigset.contains(sig) {
                 self.index = i + 1;
@@ -337,7 +374,13 @@ impl<'a> IntoIterator for &'a SignalSet {
 
 impl PartialEq for SignalSet {
     fn eq(&self, other: &Self) -> bool {
-        self.iter().zip(other).all(|(s, o)| s == o)
+        let mut i1 = self.iter();
+        let mut i2 = other.iter();
+        if (&mut i1).zip(&mut i2).all(|(s, o)| s == o) {
+            i1.next().is_none() && i2.next().is_none()
+        } else {
+            false
+        }
     }
 }
 
@@ -428,7 +471,7 @@ mod tests {
     #[serial(waitpid)]
     fn timer() -> IoResult<()> {
         let sigset = SignalSet::empty() + SIGALRM;
-        sigset.block()?;
+        let blocked = sigset.block()?;
 
         let mut timer = Timer::default();
         timer
@@ -446,7 +489,7 @@ mod tests {
         assert!(!SignalSet::pending().contains(SIGALRM));
         assert_eq!(timer.duration(), Duration::from_millis(25));
         assert_eq!(timer.interval(), Duration::from_millis(25));
-        sigset.restore()
+        blocked.restore()
     }
 
     #[test]
@@ -461,5 +504,17 @@ mod tests {
 
         let sigset = sigset - SIGCHLD;
         assert_eq!(sigset.iter().count(), 1);
+    }
+
+    #[test]
+    fn signalset_ops() {
+        let mut sigset = SignalSet::empty() + SIGALRM + SIGPIPE;
+        sigset = sigset + SignalSet::from(SIGTERM);
+        assert_eq!((&sigset).into_iter().count(), 3usize);
+        sigset = sigset - SignalSet::from(SIGTERM);
+        assert_eq!((&sigset).into_iter().count(), 2);
+
+        sigset = sigset - SignalSet::full();
+        assert_eq!(sigset, SignalSet::empty());
     }
 }
