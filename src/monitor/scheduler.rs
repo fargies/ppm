@@ -311,4 +311,40 @@ mod tests {
         };
         Ok(())
     }
+
+    #[test]
+    fn reschedule() -> Result<()> {
+        let timestamp = Scheduler::now() - Duration::from_mins(1);
+        let event = SchedulerEvent::ServiceSchedule {
+            id: 0,
+            /* introduce a time drift */
+            instant: from_systime(&(timestamp - Duration::from_mins(1)).into()),
+            date_time: timestamp,
+        };
+        let sched = Scheduler::default();
+
+        assert!(sched.enqueue(event.clone()));
+        /* still the most recent, replaces itself */
+        assert!(sched.enqueue(event.clone()));
+        assert_eq!(sched.dump().len(), 1);
+
+        sched.refresh();
+
+        match sched.iter().next() {
+            Some(scheduled @ SchedulerEvent::ServiceSchedule {
+                id,
+                instant,
+                date_time,
+            }) => {
+                assert_eq!(id, 0);
+                assert_eq!(date_time, timestamp);
+                assert_ne!(&instant, event.instant());
+                assert_ne!(scheduled, event);
+            }
+            Some(event) => panic!("unexpected event: {event:?}"),
+            None => panic!("should have event"),
+        };
+
+        Ok(())
+    }
 }
