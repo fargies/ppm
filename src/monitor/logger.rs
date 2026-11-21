@@ -373,6 +373,8 @@ mod tests {
     fn logger() -> Result<()> {
         let temp_dir = MkTemp::dir("logger")?;
         let logger = Logger::new(temp_dir.as_ref());
+        /* use Debug::fmt function */
+        eprintln!("logger: {logger:?}");
 
         let mut srv = Service::new("test", Command::new("echo", ["world"]));
         /* silence ppm-launcher logs to see only sub-command bytes */

@@ -22,6 +22,7 @@
 
 use std::ops::{Deref, DerefMut};
 
+/// Detect object boundaries in a stream of bytes
 pub struct JsonPreParser {
     pub buffer: Vec<u8>,
     parser: JsonPreParserContext,
@@ -55,6 +56,10 @@ impl DerefMut for JsonPreParser {
 }
 
 impl JsonPreParser {
+    /// parse the internal buffer
+    ///
+    /// - returns `true` if an object is available in the buffer
+    /// - Invoking parse again will flush the buffer from the last object parsed
     pub fn parse(&mut self) -> bool {
         self.flush();
 
@@ -75,6 +80,7 @@ impl JsonPreParser {
         false
     }
 
+    /// Retrieve object from buffer
     #[inline]
     pub fn get(&self) -> Option<&[u8]> {
         if self.bytes != 0 {
@@ -84,6 +90,7 @@ impl JsonPreParser {
         }
     }
 
+    /// Reset the parser state
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.parser.reset();
@@ -91,6 +98,7 @@ impl JsonPreParser {
         self.bytes = 0;
     }
 
+    /// Flush parsed object from the buffer
     fn flush(&mut self) {
         if self.bytes != 0 {
             if self.parsed < self.buffer.len() {
@@ -145,20 +153,20 @@ impl JsonPreParserContext {
             } else {
                 if value == b'"' {
                     self.in_string = true;
-                } else if obj_type == JsonType::Array {
-                    if value == b'[' {
-                        self.depth += 1;
-                    } else if value == b']' {
-                        self.depth -= 1;
-                        return self.try_take();
-                    }
-                } else if obj_type == JsonType::Object {
-                    if value == b'{' {
-                        self.depth += 1;
-                    } else if value == b'}' {
-                        self.depth -= 1;
-                        return self.try_take();
-                    }
+                } else {
+                    match obj_type {
+                        JsonType::Object if value == b'{' => self.depth += 1,
+                        JsonType::Object if value == b'}' => {
+                            self.depth -= 1;
+                            return self.try_take();
+                        }
+                        JsonType::Array if value == b'[' => self.depth += 1,
+                        JsonType::Array if value == b']' => {
+                            self.depth -= 1;
+                            return self.try_take();
+                        }
+                        _ => (),
+                    };
                 }
             }
         } else {
@@ -240,12 +248,35 @@ mod tests {
     }
 
     #[test]
-    fn nested() -> Result<()> {
+    fn nested_object() -> Result<()> {
         let mut parser = JsonPreParser::default();
         let data = br#"{ "array": [ { "obj": "test" }, [ ], 12, true, false, "test" ], "bool": true, "sub": { } }"#;
         parser.write_all(data)?;
         assert!(parser.parse());
         assert_eq!(parser.get(), Some(data.as_slice()));
+        Ok(())
+    }
+
+    #[test]
+    fn nested_array() -> Result<()> {
+        let mut parser = JsonPreParser::default();
+        let data = br#"[ [ { "obj": "test" }, [ ], 12, true, false, "test" ] ]"#;
+        parser.write_all(data)?;
+        assert!(parser.parse());
+        assert_eq!(parser.get(), Some(data.as_slice()));
+        Ok(())
+    }
+
+    #[test]
+    fn reset() -> Result<()> {
+        let mut parser = JsonPreParser::default();
+        parser.write_all(b"[ 1, 2, 3")?;
+        assert!(!parser.parse());
+        parser.reset();
+        parser.write_all(b"][1, 2]")?;
+        assert!(parser.parse());
+        assert!(parser.get().is_some_and(|b| b.len() == 6));
+        assert!(!parser.parse());
         Ok(())
     }
 
