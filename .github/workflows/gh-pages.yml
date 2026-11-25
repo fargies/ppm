@@ -18,11 +18,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  deploy:
-    name: deploy | gh-pages
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
+    name: build | gh-pages
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,6 +36,13 @@ jobs:
         uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: website/doc_build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5.0.1
