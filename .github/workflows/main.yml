@@ -19,6 +19,12 @@ jobs:
     steps:
       - name: Fetch sources
         uses: actions/checkout@v5.1.0
+      - name: Install Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: 3.x
+      - name: Prepare Python
+        run: python -m pip install --upgrade pip setuptools wheel
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
@@ -55,6 +61,12 @@ jobs:
     steps:
       - name: Fetch sources
         uses: actions/checkout@v5.1.0
+      - name: Install Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: 3.x
+      - name: Prepare Python
+        run: python -m pip install --upgrade pip setuptools wheel
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
@@ -80,6 +92,12 @@ jobs:
     steps:
       - name: Fetch sources
         uses: actions/checkout@v5.1.0
+      - name: Install Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: 3.x
+      - name: Prepare Python
+        run: python -m pip install --upgrade pip setuptools wheel
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
