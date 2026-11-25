@@ -38,6 +38,8 @@ jobs:
           path: website/doc_build
 
   deploy:
+    name: deploy | gh-pages
+    needs: build
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
