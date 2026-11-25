@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.1.0
 
       - uses: olegtarasov/get-tag@v2.1
         id: tagName
@@ -32,7 +32,7 @@ jobs:
           tagRegex: "v(?<version>.*)"
       # Cache files between builds
       - name: Setup | Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: |
             ~/.cargo/bin/
@@ -50,7 +50,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build | Build
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v1.0.3
         with:
           command: build
           args: --manifest-path Cargo.toml --release --target ${{ matrix.target }} --config 'package.version="${{ steps.tagName.outputs.version }}"'
@@ -72,7 +72,7 @@ jobs:
           cd -
 
       - name: Deploy | Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}
@@ -85,12 +85,12 @@ jobs:
       contents: write
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.1.0
         with:
           fetch-depth: 0
 
       - name: Setup | Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           path: release-dist
 

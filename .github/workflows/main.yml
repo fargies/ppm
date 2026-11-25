@@ -18,7 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch sources
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+          components: clippy
       - name: Build project
         run: cargo build
       - name: Run tests
@@ -31,11 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch sources
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
       - name: Build project
         run: cargo build --release
       - name: Deploy | Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: binaries
           path: |
@@ -48,19 +54,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch sources
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+          components: llvm-tools
       - name: Install cargo-coverage
         run: |
           cargo install --git "https://github.com/fargies/cargo-coverage"
           cargo install grcov
-          rustup component add llvm-tools
       - name: Run tests with coverage
         run: |
           # compile ppm-launcher that is used in tests
           RUSTFLAGS=-Cinstrument-coverage cargo build
           cargo cover
       - name: Coveralls
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@v2.3.8
 
   build:
     name: test | matrix
@@ -70,7 +79,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Fetch sources
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+          components: clippy
       - name: Build project
         run: cargo build
       - name: Run tests
@@ -83,12 +96,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.1.0
         with:
           fetch-tags: true
           fetch-depth: 0
       - name: Generate ChangeLog
-        uses: docker://alpine:latest
+        uses: docker://alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf # 3.24.4
         env:
           RUST_LOG: warn
         with:
