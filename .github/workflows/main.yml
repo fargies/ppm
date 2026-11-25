@@ -74,6 +74,8 @@ jobs:
         run: |
           cargo install --git "https://github.com/fargies/cargo-coverage"
           cargo install grcov
+      - name: Prepare Python
+        run: rm -rf target/venv
       - name: Run tests with coverage
         run: |
           # compile ppm-launcher that is used in tests
@@ -102,6 +104,8 @@ jobs:
           components: clippy
       - name: Build project
         run: cargo build
+      - name: Prepare Python
+        run: rm -rf target/venv
       - name: Run tests
         run: cargo test -- --no-capture
       - name: Run clippy
