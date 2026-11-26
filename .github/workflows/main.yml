@@ -28,7 +28,7 @@ jobs:
         with:
           components: clippy
       - name: build
-        run: cargo build
+        run: cargo build --locked
       - name: setup | Python venv
         run: rm -rf target/venv
       - name: test | unit-tests
@@ -52,7 +52,7 @@ jobs:
       - name: setup | Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
       - name: build
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: upload | artifacts
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -86,7 +86,7 @@ jobs:
       - name: test | coverage
         run: |
           # compile ppm-launcher that is used in tests
-          RUSTFLAGS=-Cinstrument-coverage cargo build
+          RUSTFLAGS=-Cinstrument-coverage cargo build --locked
           cargo cover
       - name: upload | artifacts
         uses: actions/upload-artifact@v7.0.2
@@ -113,7 +113,7 @@ jobs:
         with:
           components: clippy
       - name: build
-        run: cargo build
+        run: cargo build --locked
       - name: setup | Python venv
         run: rm -rf target/venv
       - name: test | unit-tests

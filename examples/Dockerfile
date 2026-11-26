@@ -16,4 +16,7 @@ logger: { path: /var/log }
 ' > /ppm_config
 EOF
 
+RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
+USER nonroot
+
 ENTRYPOINT [ "ppm", "daemon", "--config", "/ppm_config" ]
