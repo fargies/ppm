@@ -144,6 +144,7 @@ jobs:
     uses: $/.github/workflows/sonar.yml
     with:
       sonar-args: >
+        -Dsonar.coverage.exclusions=/website/**
         -Dsonar.rust.lcov.reportPaths=artifacts/lcov.info
         -Dsonar.rust.clippyReport.reportPaths=artifacts/clippy.json
 
