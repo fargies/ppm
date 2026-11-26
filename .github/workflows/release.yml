@@ -26,7 +26,7 @@ jobs:
       - name: Setup | Checkout
         uses: actions/checkout@v5.1.0
 
-      - uses: olegtarasov/get-tag@v2.1
+      - uses: olegtarasov/get-tag@v2.1.4
         id: tagName
         with:
           tagRegex: "v(?<version>.*)"
@@ -90,7 +90,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup | Artifacts
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v8.0.2
         with:
           path: release-dist
 
@@ -100,7 +100,7 @@ jobs:
           for file in release-dist/**/*; do openssl dgst -sha256 -r "$file" | awk '{print $1}' > "${file}.sha256"; done
 
       - name: Publish
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3.0.4
         with:
           files: release-dist/**/*
           generate_release_notes: true
