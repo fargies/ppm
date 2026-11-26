@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { defineConfig } from "rspress/config";
 
-const gitHash = execSync("git describe --tags HEAD").toString().trim();
+const gitHash = execSync("/usr/bin/git describe --tags HEAD").toString().trim();
 
 export default defineConfig({
   root: path.join(__dirname, "docs"),
