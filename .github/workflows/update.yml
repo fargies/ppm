@@ -1,0 +1,73 @@
+name: update
+
+on: [workflow_dispatch, push]
+
+concurrency:
+  # cancel branch jobs on new pushs
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-actions:
+    name: update | github-actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup | checkout
+        uses: actions/checkout@v5.1.0
+        with:
+          token: ${{ secrets.UPDATE_TOKEN }}
+      - name: update | actions-up
+        uses: docker://node:lts
+        with:
+          args: npx --yes -- actions-up --yes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: test | changes
+        id: check_changes
+        run: |
+          if [[ -n "$(git diff --exit-code)" ]]; then
+            echo "Changes detected."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+      - name: commit | changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+
+        run: |
+          # configure user
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+          # stage any file changes to be committed
+          git add .
+
+          # make commit with staged changes
+          git commit -m 'files changed'
+
+          # push the commit back up to source GitHub repository
+          git push -f origin HEAD:pr-actions-up
+      - name: create | pull request
+        env:
+          GH_TOKEN: ${{ secrets.UPDATE_TOKEN }}
+        run: |
+          branch="pr-actions-up"
+          base="master"
+
+          pr_number=$(gh pr list \
+            --head "$branch" \
+            --base "$base" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [[ -z "$pr_number" ]]; then
+            gh pr create \
+              --base "$base" \
+              --head "$branch" \
+              --title "Update GitHub Actions" \
+              --body "Updates GitHub Actions references."
+          else
+            echo "PR #$pr_number already exists; the branch push updated it."
+          fi
