@@ -37,7 +37,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: setup | Rust
-        uses: actions-rs/toolchain@v1.0.7
+        uses: actions-rs/toolchain@b2417cde72dcf67f306c0ae8e0828a81bf0b189f # v1.0.6
         with:
           toolchain: stable
           override: true
@@ -58,7 +58,7 @@ jobs:
 
           echo "✅ Version match confirmed: $tag_version"
       - name: build | build
-        uses: actions-rs/cargo@v1.0.3
+        uses: actions-rs/cargo@ae10961054e4aa8b4aa7dffede299aaf087aa33b # v1.0.1
         with:
           command: build
           args: --manifest-path Cargo.toml --release --target ${{ matrix.target }}'
