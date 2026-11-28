@@ -23,15 +23,10 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Setup | Checkout
+      - name: setup | checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: olegtarasov/get-tag@v2.1.4
-        id: tagName
-        with:
-          tagRegex: "v(?<version>.*)"
       # Cache files between builds
-      - name: Setup | Cache Cargo
+      - name: setup | cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -41,7 +36,7 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Setup | Rust
+      - name: setup | Rust
         uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
@@ -49,14 +44,27 @@ jobs:
           profile: minimal
           target: ${{ matrix.target }}
 
-      - name: Build | Build
+      - name: test | version-tag
+        run: |
+          set -euo pipefail
+          cargo_version=$(cargo metadata --no-deps --format-version 1 --frozen | jq -r '.packages[0].version')
+          tag_ref="${GITHUB_REF##*/}"
+          tag_version="${tag_ref#v}"
+
+          if [ "$tag_version" != "$cargo_version" ]; then
+            echo "❌ Tag version '$tag_ref' does not match Cargo.toml version '$cargo_version'" 1>&2
+            exit 1
+          fi
+
+          echo "✅ Version match confirmed: $tag_version"
+      - name: build | build
         uses: actions-rs/cargo@v1.0.3
         with:
           command: build
-          args: --manifest-path Cargo.toml --release --target ${{ matrix.target }} --config 'package.version="${{ steps.tagName.outputs.version }}"'
+          args: --manifest-path Cargo.toml --release --target ${{ matrix.target }}'
           use-cross: ${{ matrix.os == 'ubuntu-latest' }}
 
-      - name: Prepare artifacts
+      - name: setup | artifacts
         run: |
           cd target/${{ matrix.target }}/release
           # TODO: investigate better cross platform stripping
@@ -64,14 +72,14 @@ jobs:
           tar czvf ../../../${{ matrix.name }} ppm ppm-daemon ppm-launcher
           cd -
 
-      - name: Test Bin
+      - name: test | bin
         if: matrix.arch == 'x86_64'
         run: |
           cd target/${{ matrix.target }}/release
           ./ppm --version
           cd -
 
-      - name: Deploy | Upload artifacts
+      - name: upload | artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.name }}
@@ -84,22 +92,22 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Setup | Checkout
+      - name: setup | checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Setup | Artifacts
+      - name: setup | artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release-dist
 
-      - name: Setup | Checksums
+      - name: setup | checksums
         run: |
           ls -lha release-dist
           for file in release-dist/**/*; do openssl dgst -sha256 -r "$file" | awk '{print $1}' > "${file}.sha256"; done
 
-      - name: Publish
+      - name: publish
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: release-dist/**/*
