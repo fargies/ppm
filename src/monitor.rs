@@ -82,7 +82,7 @@ pub struct Monitor {
     #[serde(skip)]
     listener: Mutex<Option<Box<PortListener>>>,
     #[serde(skip)]
-    sysinfo: Mutex<Sysinfo>,
+    sysinfo: Mutex<Option<Sysinfo>>,
     #[serde(skip)]
     _stats: Mutex<Arc<Stats>>,
     #[serde(skip)]
@@ -103,7 +103,7 @@ impl Default for Monitor {
             scheduler: Default::default(),
             watcher: Default::default(),
             listener: Default::default(),
-            sysinfo: Default::default(),
+            sysinfo: Mutex::new(Sysinfo::new().ok()),
             _stats: Default::default(),
             start_time: Instant::now(),
             tid: Default::default(),
@@ -219,7 +219,7 @@ impl Monitor {
                     }
                 }
                 mut s @ SchedulerEvent::Sysinfo { .. } => {
-                    self.sysinfo.lock().unwrap().update(self);
+                    self.update_sysinfo();
                     s.reschedule(self.stats_interval);
                     self.scheduler.enqueue(s);
                 }
@@ -537,6 +537,13 @@ impl Monitor {
                 .and_then(|g| g.socket_dup(&service.id).map(Stdio::from))
         } else {
             None
+        }
+    }
+
+    fn update_sysinfo(&self) {
+        let mut guard = self.sysinfo.lock().unwrap();
+        if let Some(sysinfo) = guard.as_mut() {
+            sysinfo.update(self);
         }
     }
 }

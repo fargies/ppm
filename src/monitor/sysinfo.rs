@@ -21,6 +21,7 @@
  ** Author: Sylvain Fargier <fargier.sylvain@gmail.com>
  */
 
+use anyhow::Result;
 use dashmap::DashMap;
 use std::{
     sync::Arc,
@@ -49,17 +50,16 @@ impl std::fmt::Debug for Sysinfo {
     }
 }
 
-impl Default for Sysinfo {
-    fn default() -> Self {
-        Self {
-            system: System::new(),
+impl Sysinfo {
+    #[tracing::instrument(level = "ERROR", err)]
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            system: System::new()?,
             last_update: Instant::now(),
             pids: Vec::with_capacity(10),
-        }
+        })
     }
-}
 
-impl Sysinfo {
     #[tracing::instrument(skip(self, monitor))]
     pub fn update(&mut self, monitor: &Monitor) {
         tracing::debug!("updating stats");
@@ -213,7 +213,7 @@ mod tests {
         };
         let _drop_guard = kill_on_drop(join_handle);
 
-        let mut sysinfo = Sysinfo::default();
+        let mut sysinfo = Sysinfo::new().expect("failed to build sysinfo");
         sysinfo.update(&mon);
         assert_eq!(2, sysinfo.pids.len());
         assert_eq!(2, sysinfo.system.processes().len());
@@ -252,7 +252,7 @@ mod tests {
         assert_ne!(None, info.pid);
 
         /* manually invoke before calling STOP */
-        mon.sysinfo.lock().unwrap().update(&mon);
+        mon.update_sysinfo();
         Signal::kill(info.pid.unwrap(), SIGSTOP)?;
         wait_for!(
             service.info().status == Status::Stopped,
@@ -264,7 +264,7 @@ mod tests {
         /* it seems that just after process launch on MacOs [sysinfo]
          * `proc_pidinfo` call fails displaying process as `Running` when
          * it may not really be. */
-        mon.sysinfo.lock().unwrap().update(&mon);
+        mon.update_sysinfo();
         assert_eq!(service.info().status, Status::Stopped);
 
         Signal::kill(info.pid.unwrap(), SIGCONT)?;
